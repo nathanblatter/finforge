@@ -38,6 +38,8 @@ logging.getLogger().addHandler(_db_handler)
 logger = logging.getLogger("finforge.cron")
 
 TIMEZONE = "America/Los_Angeles"
+REFRESH_TOKEN_LIFETIME_DAYS = 7
+REFRESH_TOKEN_WARN_DAYS = 2  # warn when fewer than this many days remain
 
 # ---------------------------------------------------------------------------
 # Job stubs — each logs its invocation and returns immediately.
@@ -132,6 +134,57 @@ def market_data_sync() -> None:
         logger.info("market_data_sync completed successfully.")
     except Exception:
         logger.error("market_data_sync failed:\n%s", traceback.format_exc())
+
+
+def schwab_token_watchdog() -> None:
+    """Check Schwab token freshness and force-refresh to prevent expiry."""
+    from datetime import datetime, timedelta, timezone
+    from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
+    from config import settings
+
+    try:
+        tm = SchwabTokenManager(
+            token_file_path=settings.schwab_token_file,
+            client_id=settings.schwab_client_id,
+            client_secret=settings.schwab_client_secret,
+        )
+        tokens = tm.load_tokens()
+    except FileNotFoundError:
+        logger.warning("[token_watchdog] No Schwab token file — skipping")
+        return
+    except Exception as exc:
+        logger.error("[token_watchdog] Failed to load tokens: %s", exc)
+        return
+
+    # Estimate refresh token age: last refresh was at (expires_at - 30min access token lifetime)
+    expires_at = datetime.fromisoformat(tokens["expires_at"])
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    last_refresh = expires_at - timedelta(minutes=30)
+    refresh_token_deadline = last_refresh + timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS)
+    days_remaining = (refresh_token_deadline - datetime.now(timezone.utc)).total_seconds() / 86400
+
+    if days_remaining <= 0:
+        logger.critical(
+            "[token_watchdog] Schwab refresh token has EXPIRED. Manual re-auth required."
+        )
+        return
+
+    if days_remaining <= REFRESH_TOKEN_WARN_DAYS:
+        logger.warning(
+            "[token_watchdog] Schwab refresh token expires in %.1f days — forcing refresh now",
+            days_remaining,
+        )
+        try:
+            tm.force_refresh()
+            logger.info("[token_watchdog] Token refresh successful — 7-day window reset")
+        except SchwabReauthRequired:
+            logger.critical("[token_watchdog] Refresh token rejected — manual re-auth required")
+        except Exception as exc:
+            logger.error("[token_watchdog] Token refresh failed: %s", exc)
+        return
+
+    logger.info("[token_watchdog] Schwab refresh token OK — %.1f days remaining", days_remaining)
 
 
 def health_check() -> None:
@@ -235,6 +288,14 @@ def build_scheduler() -> BlockingScheduler:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        schwab_token_watchdog,
+        trigger=IntervalTrigger(hours=6, timezone=TIMEZONE),
+        id="schwab_token_watchdog",
+        name="Schwab Token Watchdog",
+        max_instances=1,
+        coalesce=True,
+    )
 
     return scheduler
 
@@ -253,6 +314,7 @@ ALL_SYNC_JOBS = {
     "generate_goal_snapshots": generate_goal_snapshots,
     "generate_claude_insights": generate_claude_insights,
     "check_goal_alerts": check_goal_alerts,
+    "schwab_token_watchdog": schwab_token_watchdog,
 }
 
 
@@ -290,8 +352,35 @@ def start_trigger_server(port: int = 9090) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _startup_token_refresh() -> None:
+    """Force-refresh Schwab tokens on startup to reset the 7-day window.
+    This prevents token expiry when the cron container has been down."""
+    from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
+    from config import settings
+
+    try:
+        tm = SchwabTokenManager(
+            token_file_path=settings.schwab_token_file,
+            client_id=settings.schwab_client_id,
+            client_secret=settings.schwab_client_secret,
+        )
+        tm.load_tokens()
+        tm.force_refresh()
+        logger.info("Startup Schwab token refresh successful — 7-day window reset")
+    except FileNotFoundError:
+        logger.warning("No Schwab token file found — skipping startup refresh")
+    except SchwabReauthRequired:
+        logger.critical(
+            "Schwab refresh token EXPIRED — manual re-auth required via /api/v1/auth/schwab/login"
+        )
+    except Exception as exc:
+        logger.error("Startup Schwab token refresh failed: %s", exc)
+
+
 if __name__ == "__main__":
     start_trigger_server(9090)
+
+    _startup_token_refresh()
 
     scheduler = build_scheduler()
     logger.info(
