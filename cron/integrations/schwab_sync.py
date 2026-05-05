@@ -19,6 +19,7 @@ PRD requirements implemented:
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -45,13 +46,18 @@ SCHWAB_ACCOUNTS: dict[str, tuple[str, str]] = {
     "Schwab Roth IRA": ("ira", "Charles Schwab"),
 }
 
-# Map raw Schwab account numbers to FinForge aliases.
-# Both accounts report as MARGIN type, so we identify them by account number.
-# Update these if accounts change.
-SCHWAB_ACCOUNT_NUMBER_TO_ALIAS: dict[str, str] = {
-    "REDACTED_ACCT_1": "Schwab Roth IRA",
-    "REDACTED_ACCT_2": "Schwab Brokerage",
-}
+
+def _load_account_number_to_alias() -> dict[str, str]:
+    """Load account number → alias mapping from SCHWAB_ACCOUNT_MAP env var.
+    Expected format: JSON object {"account_number": "alias", ...}"""
+    raw = settings.schwab_account_map
+    if not raw:
+        logger.error(
+            "[schwab_sync] SCHWAB_ACCOUNT_MAP env var is not set. "
+            "Set it to a JSON object mapping account numbers to aliases."
+        )
+        return {}
+    return json.loads(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -160,16 +166,17 @@ def _fetch_account_hashes(token_manager: SchwabTokenManager) -> dict[str, str]:
         response = client.get("/accounts/accountNumbers")
     _handle_schwab_error(response, "/accounts/accountNumbers")
 
+    account_map = _load_account_number_to_alias()
     result: dict[str, str] = {}
     for entry in response.json():
         acct_num = entry.get("accountNumber", "")
         hash_value = entry.get("hashValue", "")
-        alias = SCHWAB_ACCOUNT_NUMBER_TO_ALIAS.get(acct_num)
+        alias = account_map.get(acct_num)
         if alias and hash_value:
             result[alias] = hash_value
         elif not alias:
             logger.warning(
-                "[schwab_sync] Unknown account number %s — add it to SCHWAB_ACCOUNT_NUMBER_TO_ALIAS",
+                "[schwab_sync] Unknown account number %s — add it to SCHWAB_ACCOUNT_MAP env var",
                 acct_num,
             )
     return result
@@ -195,8 +202,9 @@ def sync_schwab_accounts(token_manager: SchwabTokenManager) -> None:
 
     for account_data in accounts_data:
         securities_account = account_data.get("securitiesAccount", {})
+        account_map = _load_account_number_to_alias()
         acct_num = securities_account.get("accountNumber", "")
-        alias = SCHWAB_ACCOUNT_NUMBER_TO_ALIAS.get(acct_num)
+        alias = account_map.get(acct_num)
         if not alias:
             logger.warning("[schwab_sync] Skipping unknown account %s", acct_num)
             continue
