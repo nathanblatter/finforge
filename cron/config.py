@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     schwab_client_id: str = ""
     schwab_client_secret: str = ""
     schwab_token_file: str = "/secrets/schwab_tokens.json"
+    schwab_account_map: str = ""  # JSON: {"account_number": "alias", ...}
 
     anthropic_api_key: str = ""
 
