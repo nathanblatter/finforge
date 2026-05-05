@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="50%" stop-color="#00BFFF"/>
+      <stop offset="100%" stop-color="#0091EA"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#0A0E14"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="haloGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+  </defs>
+
+  <!-- Background: rounded square with slight radial depth -->
+  <rect width="1024" height="1024" fill="url(#bg)" rx="180"/>
+
+  <!-- Soft cyan halo behind the mark -->
+  <g opacity="0.35">
+    <path d="M 280 240 L 700 240 L 700 360 L 420 360 L 420 480 L 620 480
+             L 620 600 L 420 600 L 420 780 L 280 780 Z"
+          fill="url(#cyan)" filter="url(#haloGlow)"/>
+  </g>
+
+  <!-- F body: three dark metallic bars with cyan stroke outlines -->
+  <g fill="#1a2230" stroke="url(#cyan)" stroke-width="6" stroke-linejoin="miter">
+    <path d="M 280 240 L 700 240 L 700 360 L 280 360 Z"/>   <!-- top bar -->
+    <path d="M 280 480 L 620 480 L 620 600 L 280 600 Z"/>   <!-- middle bar -->
+    <path d="M 280 240 L 420 240 L 420 780 L 280 780 Z"/>   <!-- spine -->
+  </g>
+
+  <!-- Cyan accents (glowing) -->
+  <g filter="url(#glow)">
+    <!-- diagonal cut on top-right of top bar (spark motif) -->
+    <path d="M 700 240 L 700 360 L 620 360 L 700 240 Z" fill="url(#cyan)"/>
+    <!-- base accent at foot of spine (anvil grounding) -->
+    <rect x="280" y="760" width="140" height="20" fill="url(#cyan)"/>
+  </g>
+  <g filter="url(#glow)" opacity="0.9">
+    <!-- diagonal spark crossing the middle bar -->
+    <path d="M 600 500 L 680 420 L 695 435 L 615 515 Z" fill="url(#cyan)"/>
+  </g>
+
+  <!-- Subtle corner framing ticks -->
+  <g stroke="url(#cyan)" stroke-width="4" fill="none" opacity="0.6">
+    <path d="M 160 160 L 200 160 M 160 160 L 160 200"/>
+    <path d="M 864 160 L 824 160 M 864 160 L 864 200"/>
+    <path d="M 160 864 L 200 864 M 160 864 L 160 824"/>
+    <path d="M 864 864 L 824 864 M 864 864 L 864 824"/>
+  </g>
+</svg>

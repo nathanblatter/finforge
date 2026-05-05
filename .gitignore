@@ -1,0 +1,43 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+*.egg
+
+# Node
+node_modules/
+dist/
+build/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Secrets
+/secrets/
+
+# Logs
+*.log
+
+# Alembic
+# (versions are committed, but not pyc inside them)
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+
+# ML models
+secrets/*.pkl

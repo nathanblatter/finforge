@@ -1,0 +1,24 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    database_url: str = "postgresql://finforge:REDACTED@postgres:5432/finforge"
+    api_key: str = "REDACTED"
+
+    plaid_client_id: str = ""
+    plaid_secret: str = ""
+    plaid_env: str = "sandbox"
+
+    schwab_client_id: str = ""
+    schwab_client_secret: str = ""
+    schwab_token_file: str = "/secrets/schwab_tokens.json"
+
+    anthropic_api_key: str = ""
+
+    environment: str = "development"
+    log_level: str = "INFO"
+
+
+settings = Settings()
