@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     schwab_token_file: str = "/secrets/schwab_tokens.json"
 
     # JWT Auth
-    jwt_secret: str = "REDACTED"
+    jwt_secret: str
     jwt_expire_days: int = 7
 
     # Claude AI
