@@ -19,6 +19,7 @@ from routers import (
     health_router,
     insights_router,
     investments_router,
+    kpi_router,
     natebot_router,
     natebot_imessage_router,
     plaid_link_router,
@@ -116,3 +117,4 @@ app.include_router(schwab_data_router, prefix=_PREFIX)
 app.include_router(watchlists_router,  prefix=_PREFIX)
 app.include_router(users_router,       prefix=_PREFIX)
 app.include_router(system_router,      prefix=_PREFIX)
+app.include_router(kpi_router,         prefix=_PREFIX)

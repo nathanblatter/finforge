@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Cloudflare Tunnel
     tunnel_token: str = ""
 
+    # KPI endpoint
+    kpi_api_key: str = ""
+
     # App
     environment: str = "development"
     log_level: str = "INFO"
