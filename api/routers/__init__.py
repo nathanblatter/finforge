@@ -1,4 +1,5 @@
 from routers.alerts import router as alerts_router
+from routers.kpi import router as kpi_router
 from routers.auth import router as auth_router
 from routers.balances import router as balances_router
 from routers.chat import router as chat_router
@@ -21,6 +22,7 @@ from routers.watchlists import router as watchlists_router
 
 __all__ = [
     "alerts_router",
+    "kpi_router",
     "auth_router",
     "balances_router",
     "chat_router",
