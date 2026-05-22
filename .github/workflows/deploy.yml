@@ -11,6 +11,99 @@ jobs:
         run: |
           cd /Users/nathanblatter/Desktop/finforge
           git pull origin main
-          docker compose down
+
+          # Build all images
           docker compose build --no-cache
-          docker compose up -d
+
+          # --- Zero-downtime deploy: finforge-api ---
+          OLD_API=$(docker compose ps -q finforge-api 2>/dev/null | head -1)
+
+          if [ -z "$OLD_API" ]; then
+            echo "No existing containers, starting fresh..."
+            docker compose up -d
+            exit 0
+          fi
+
+          echo "Scaling finforge-api to 2 replicas..."
+          docker compose up -d --scale finforge-api=2 --no-recreate
+
+          NEW_API=$(docker compose ps -q finforge-api | grep -v "^${OLD_API}$" | head -1)
+          if [ -z "$NEW_API" ]; then
+            echo "ERROR: Could not identify new finforge-api container"
+            exit 1
+          fi
+          echo "finforge-api: Old=$OLD_API | New=$NEW_API"
+
+          echo "Waiting for finforge-api to be healthy..."
+          HEALTHY=false
+          for i in $(seq 1 40); do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$NEW_API" 2>/dev/null)
+            if [ "$STATUS" = "healthy" ]; then
+              HEALTHY=true
+              echo "finforge-api is healthy!"
+              break
+            elif [ "$STATUS" = "unhealthy" ]; then
+              echo "ERROR: finforge-api is unhealthy, rolling back..."
+              docker stop "$NEW_API" && docker rm "$NEW_API"
+              exit 1
+            else
+              echo "  Status: ${STATUS:-starting} ($i/40)..."
+              sleep 5
+            fi
+          done
+
+          if [ "$HEALTHY" != "true" ]; then
+            echo "ERROR: finforge-api health check timed out, rolling back..."
+            docker stop "$NEW_API" && docker rm "$NEW_API"
+            exit 1
+          fi
+
+          docker stop "$OLD_API" && docker rm "$OLD_API"
+          echo "finforge-api zero-downtime deploy complete!"
+
+          # --- Zero-downtime deploy: finforge-ui ---
+          OLD_UI=$(docker compose ps -q finforge-ui 2>/dev/null | head -1)
+
+          if [ -n "$OLD_UI" ]; then
+            echo "Scaling finforge-ui to 2 replicas..."
+            docker compose up -d --scale finforge-ui=2 --no-recreate
+
+            NEW_UI=$(docker compose ps -q finforge-ui | grep -v "^${OLD_UI}$" | head -1)
+            if [ -z "$NEW_UI" ]; then
+              echo "ERROR: Could not identify new finforge-ui container"
+              exit 1
+            fi
+            echo "finforge-ui: Old=$OLD_UI | New=$NEW_UI"
+
+            echo "Waiting for finforge-ui to be healthy..."
+            HEALTHY=false
+            for i in $(seq 1 20); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$NEW_UI" 2>/dev/null)
+              if [ "$STATUS" = "healthy" ]; then
+                HEALTHY=true
+                echo "finforge-ui is healthy!"
+                break
+              elif [ "$STATUS" = "unhealthy" ]; then
+                echo "ERROR: finforge-ui is unhealthy, rolling back..."
+                docker stop "$NEW_UI" && docker rm "$NEW_UI"
+                exit 1
+              else
+                echo "  Status: ${STATUS:-starting} ($i/20)..."
+                sleep 3
+              fi
+            done
+
+            if [ "$HEALTHY" != "true" ]; then
+              echo "ERROR: finforge-ui health check timed out, rolling back..."
+              docker stop "$NEW_UI" && docker rm "$NEW_UI"
+              exit 1
+            fi
+
+            docker stop "$OLD_UI" && docker rm "$OLD_UI"
+            echo "finforge-ui zero-downtime deploy complete!"
+          fi
+
+          # Recreate cron with new image (background job, brief restart OK)
+          docker compose up -d finforge-cron
+
+          echo "All services deployed!"
