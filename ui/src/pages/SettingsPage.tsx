@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePlaidLink } from 'react-plaid-link'
 import { useAuth } from '../hooks/useAuth'
 import Header from '../components/layout/Header'
@@ -41,6 +42,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export default function SettingsPage() {
   const { token } = useAuth()
+  const navigate = useNavigate()
   const [users, setUsers] = useState<UserInfo[]>([])
   const [services, setServices] = useState<ServiceInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -472,6 +474,12 @@ export default function SettingsPage() {
                       className="text-xs text-sky-400 hover:text-sky-300 transition-colors"
                     >
                       Change Password
+                    </button>
+                    <button
+                      onClick={() => navigate('/settings/mfa')}
+                      className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+                    >
+                      Reset MFA
                     </button>
                     <button
                       onClick={() => handleDeleteUser(user)}
