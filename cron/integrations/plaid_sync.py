@@ -11,7 +11,9 @@ Cursors for /transactions/sync are persisted in a JSON file on disk.
 
 PRD requirements implemented:
   - /transactions/sync for delta syncs (added/modified/removed)
-  - /accounts/balance/get for daily balance snapshots
+  - Daily balance snapshots from the accounts array of the /transactions/sync
+    response (one API call per Item per night; /accounts/balance/get is only
+    used as a fallback when the sync response carries no accounts)
   - Idempotent upserts via INSERT ... ON CONFLICT (plaid_transaction_id) DO UPDATE
   - ITEM_LOGIN_REQUIRED → ERROR log (DB alert wired in Phase 5)
   - Cursor persistence between runs
@@ -143,22 +145,16 @@ _ALIAS_PLAID_TYPE: dict[str, str] = {
 }
 
 
-def _build_plaid_account_map(
-    client: Any, access_token: str, aliases: list[str],
+def _build_account_map(
+    plaid_accounts: list[dict], aliases: list[str],
 ) -> dict[str, str]:
     """
-    For a Plaid Item, build a mapping of Plaid account_id → FinForge account UUID.
-    Fetches account list from Plaid and matches by type to the given aliases.
+    Build a mapping of Plaid account_id → FinForge account UUID from a list
+    of Plaid account dicts, matching by type to the given aliases.
     """
-    from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest as ABR
-
-    resp = client.accounts_balance_get(ABR(access_token=access_token))
-    plaid_accounts = resp.accounts or []
-
     acct_map: dict[str, str] = {}  # plaid_account_id → finforge UUID string
 
-    for plaid_acct in plaid_accounts:
-        pa = plaid_acct.to_dict()
+    for pa in plaid_accounts:
         plaid_type = pa.get("type", "")  # "depository", "credit", etc.
 
         # Find matching FinForge alias
@@ -196,23 +192,16 @@ def run_plaid_sync() -> None:
         token_to_aliases.setdefault(access_token, []).append(alias)
 
     for access_token, group_aliases in token_to_aliases.items():
-        # Build Plaid account_id → FinForge UUID mapping
-        try:
-            acct_map = _build_plaid_account_map(client, access_token, group_aliases)
-        except Exception as exc:
-            logger.error("[plaid_sync] Failed to build account map for %r: %s", group_aliases, exc)
-            continue
-
-        if not acct_map:
-            logger.warning("[plaid_sync] No account mapping for %r — skipping", group_aliases)
-            continue
-
         # Use first alias as cursor key for the Item
         cursor_key = group_aliases[0]
 
-        # Sync transactions (once per Item, routing to correct account)
+        # Sync transactions (once per Item, routing to correct account).
+        # The sync response also carries the Item's accounts with balances,
+        # so this is normally the only Plaid call for the Item.
         try:
-            new_cursor = sync_transactions(client, access_token, cursor_key, acct_map, cursors)
+            new_cursor, plaid_accounts = sync_transactions(
+                client, access_token, cursor_key, group_aliases, cursors,
+            )
             cursors[cursor_key] = new_cursor
             # Clear duplicate cursors for other aliases in the group
             for alias in group_aliases[1:]:
@@ -220,16 +209,17 @@ def run_plaid_sync() -> None:
             _save_cursors(cursors)
         except Exception as exc:
             logger.error("[plaid_sync] Transaction sync failed for %r: %s", group_aliases, exc)
+            continue
 
-        # Sync balances per alias
+        # Write balance snapshots per alias from the already-fetched accounts
         for alias in group_aliases:
             account_type, institution = ACCOUNT_META.get(alias, ("checking", "Unknown"))
             with get_session() as session:
                 account_uuid = get_or_create_account(session, alias, account_type, institution)
             try:
-                sync_balances(client, access_token, alias, str(account_uuid), account_type)
+                write_balance_snapshot(plaid_accounts, alias, str(account_uuid), account_type)
             except Exception as exc:
-                logger.error("[plaid_sync] Balance sync failed for %r: %s", alias, exc)
+                logger.error("[plaid_sync] Balance snapshot failed for %r: %s", alias, exc)
 
     logger.info("[plaid_sync] Sync complete for %d accounts", len(aliases))
 
@@ -242,23 +232,27 @@ def sync_transactions(
     client: Any,
     access_token: str,
     cursor_key: str,
-    acct_map: dict[str, str],
+    aliases: list[str],
     cursors: dict[str, str | None],
-) -> str | None:
+) -> tuple[str | None, list[dict]]:
     """
     Sync transactions for one Plaid Item using /transactions/sync.
 
-    acct_map: Plaid account_id → FinForge UUID string.
-    Each transaction is routed to the correct FinForge account based on
-    its Plaid account_id.
+    The account_id → FinForge UUID mapping is built from the accounts array
+    of the sync response itself; each transaction is routed to the correct
+    FinForge account based on its Plaid account_id. If the response carries
+    no accounts (older API versions), falls back to one /accounts/balance/get.
 
-    Returns the new cursor string to persist for next run.
+    Returns (new cursor string to persist, list of Plaid account dicts with
+    balances for snapshot writing).
     """
     from db import TransactionRow
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     cursor = cursors.get(cursor_key)
     added_count = modified_count = removed_count = skipped_count = 0
+    acct_map: dict[str, str] | None = None
+    plaid_accounts: list[dict] = []
 
     has_more = True
     while has_more:
@@ -285,6 +279,27 @@ def sync_transactions(
         removed = response.removed or []
         has_more = response.has_more
         cursor = response.next_cursor
+
+        response_accounts = getattr(response, "accounts", None) or []
+        if response_accounts:
+            plaid_accounts = [a.to_dict() for a in response_accounts]
+
+        if acct_map is None:
+            if not plaid_accounts:
+                logger.warning(
+                    "[plaid_sync] /transactions/sync returned no accounts for %r — "
+                    "falling back to /accounts/balance/get", cursor_key,
+                )
+                resp = client.accounts_balance_get(
+                    AccountsBalanceGetRequest(access_token=access_token)
+                )
+                plaid_accounts = [a.to_dict() for a in (resp.accounts or [])]
+            acct_map = _build_account_map(plaid_accounts, aliases)
+            if not acct_map:
+                logger.warning(
+                    "[plaid_sync] No account mapping for %r — transactions will be skipped",
+                    cursor_key,
+                )
 
         def _upsert_txns(raw_txns: list) -> int:
             count = 0
@@ -334,43 +349,28 @@ def sync_transactions(
         "[plaid_sync] %r — added=%d modified=%d removed=%d",
         cursor_key, added_count, modified_count, removed_count,
     )
-    return cursor
+    return cursor, plaid_accounts
 
 
 # ---------------------------------------------------------------------------
-# Balance sync
+# Balance snapshots
 # ---------------------------------------------------------------------------
 
-def sync_balances(
-    client: Any,
-    access_token: str,
+def write_balance_snapshot(
+    plaid_accounts: list[dict],
     account_alias: str,
     account_uuid: str,
     account_type: str,
 ) -> None:
     """
-    Fetch current balances for one Plaid Item using /accounts/balance/get.
-    Writes a new Balance row for today's date.
+    Write a new Balance row for today's date from already-fetched Plaid
+    account dicts (the accounts array of the /transactions/sync response).
+    Makes no API calls.
     """
     from db import BalanceRow
 
-    request = AccountsBalanceGetRequest(access_token=access_token)
-    try:
-        response = client.accounts_balance_get(request)
-    except plaid.ApiException as exc:
-        body = exc.body if hasattr(exc, "body") else str(exc)
-        if "ITEM_LOGIN_REQUIRED" in body or "ITEM_ERROR" in body:
-            logger.error(
-                "[plaid_sync] ITEM_LOGIN_REQUIRED fetching balance for %r: %s",
-                account_alias, body,
-            )
-        else:
-            logger.error("[plaid_sync] Balance fetch failed for %r: %s", account_alias, body)
-        raise
-
-    accounts = response.accounts or []
-    if not accounts:
-        logger.warning("[plaid_sync] No accounts returned for %r balance fetch", account_alias)
+    if not plaid_accounts:
+        logger.warning("[plaid_sync] No accounts available for %r balance snapshot", account_alias)
         return
 
     # Match the correct Plaid account to the FinForge alias by type.
@@ -382,15 +382,14 @@ def sync_balances(
     expected_plaid_type = _TYPE_MATCH.get(account_type, account_type)
 
     raw_account = None
-    for acct in accounts:
-        acct_dict = acct.to_dict()
+    for acct_dict in plaid_accounts:
         if acct_dict.get("type") == expected_plaid_type:
             raw_account = acct_dict
             break
 
     if raw_account is None:
         # Fall back to first account if no type match
-        raw_account = accounts[0].to_dict()
+        raw_account = plaid_accounts[0]
         logger.warning("[plaid_sync] No type match for %r (expected %s), using first account", account_alias, expected_plaid_type)
 
     clean = deidentify_plaid_balance(raw_account, account_uuid, account_type)
