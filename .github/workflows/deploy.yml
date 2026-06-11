@@ -9,7 +9,7 @@ jobs:
     steps:
       - name: Deploy
         run: |
-          cd /Users/nathanblatter/Desktop/finforge
+          cd /Users/nathanblatter/dev/finforge
           git pull origin main
 
           # Build all images
