@@ -39,14 +39,9 @@ async def schwab_callback(
         )
 
     try:
-        tokens = await exchange_code(code)
+        await exchange_code(code)
         logger.info("Schwab OAuth completed successfully")
-        return {
-            "status": "ok",
-            "message": "Schwab tokens saved successfully",
-            "token_type": tokens.get("token_type"),
-            "expires_in": tokens.get("expires_in"),
-        }
+        return RedirectResponse("/settings?schwab=connected")
     except Exception as exc:
         logger.exception("Failed to exchange Schwab auth code")
         raise HTTPException(

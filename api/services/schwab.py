@@ -36,6 +36,10 @@ def _save_tokens(data: dict) -> None:
     expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
     data["expires_at"] = expires_at
 
+    # Merge over the existing file so keys like account_hashes survive re-auth
+    existing = _load_tokens() or {}
+    data = {**existing, **data}
+
     # Atomic write
     path = Path(settings.schwab_token_file)
     path.parent.mkdir(parents=True, exist_ok=True)

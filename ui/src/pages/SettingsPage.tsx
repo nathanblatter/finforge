@@ -105,6 +105,10 @@ export default function SettingsPage() {
       // Clean up URL
       window.history.replaceState({}, '', '/settings')
     }
+    if (params.get('schwab') === 'connected') {
+      setSuccess('Schwab reconnected — tokens saved. The nightly sync will use them automatically.')
+      window.history.replaceState({}, '', '/settings')
+    }
   }, [])
 
   // Plaid Link handlers
@@ -261,9 +265,17 @@ export default function SettingsPage() {
 
       {/* Connected Services */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
-        <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">
-          Connected Services
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+            Connected Services
+          </h2>
+          <button
+            onClick={() => { window.location.href = '/api/v1/auth/schwab/login' }}
+            className="px-3 py-1.5 text-xs font-medium bg-sky-600 hover:bg-sky-500 text-white rounded-lg transition-colors"
+          >
+            Reconnect Schwab
+          </button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {services.map((svc) => (
             <div
