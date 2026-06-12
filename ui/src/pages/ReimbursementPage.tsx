@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useReimbursementTransactions } from '../hooks/useReimbursement'
 import { api } from '../api/client'
 import Header from '../components/layout/Header'
+import { useToast } from '../components/Toast'
 import { formatCurrency, formatDate } from '../utils/format'
 
 interface ReimbursementTxn {
@@ -84,6 +85,7 @@ export default function ReimbursementPage() {
   const [emailSent, setEmailSent] = useState(false)
   const [verbose, setVerbose] = useState(false)
 
+  const toast = useToast()
   const { data, isLoading } = useReimbursementTransactions(month, rentAmount, miscTarget)
 
   // When data loads, initialize selectedIds from auto_selected
@@ -209,8 +211,9 @@ export default function ReimbursementPage() {
         month,
         verbose,
       })
+      toast.success('Spreadsheet downloaded')
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err?.message ?? 'Export failed')
     } finally {
       setExporting(false)
     }
@@ -227,9 +230,10 @@ export default function ReimbursementPage() {
         verbose,
       })
       setEmailSent(true)
+      toast.success('Reimbursement email sent')
       setTimeout(() => setEmailSent(false), 5000)
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err?.message ?? 'Failed to send email')
     } finally {
       setEmailing(false)
     }

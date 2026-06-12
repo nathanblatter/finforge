@@ -101,6 +101,10 @@ export default function SettingsPage() {
       const storedToken = sessionStorage.getItem('plaid_link_token')
       if (storedToken) {
         setLinkToken(storedToken)
+      } else {
+        // Link token was lost (e.g. session cleared or different tab) — the OAuth
+        // flow can't be resumed. Surface this instead of failing silently.
+        setError('Bank linking session expired. Please start "Link a bank" again.')
       }
       // Clean up URL
       window.history.replaceState({}, '', '/settings')

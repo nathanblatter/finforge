@@ -3,6 +3,7 @@ import { useFinancialPreview, useTithingIncome, useContributionPreview } from '.
 import { useDownloadQueue } from '../hooks/useDownloadQueue'
 import { api } from '../api/client'
 import Header from '../components/layout/Header'
+import { useToast } from '../components/Toast'
 import { formatCurrency, formatDate } from '../utils/format'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -202,6 +203,7 @@ function FinancialTab({ period, month, startDate, endDate }: {
 }) {
   const { data, isLoading } = useFinancialPreview(period, month, startDate, endDate)
   const { addJob } = useDownloadQueue()
+  const toast = useToast()
   const [emailing, setEmailing] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
 
@@ -216,9 +218,10 @@ function FinancialTab({ period, month, startDate, endDate }: {
     try {
       await api.emailFinancialReport({ period, month, start_date: startDate, end_date: endDate })
       setEmailSent(true)
+      toast.success('Financial report emailed')
       setTimeout(() => setEmailSent(false), 5000)
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err?.message ?? 'Failed to send report')
     } finally {
       setEmailing(false)
     }
@@ -283,6 +286,7 @@ function TithingTab({ period, month, startDate, endDate }: {
 }) {
   const { data, isLoading } = useTithingIncome(period, month, startDate, endDate)
   const { addJob } = useDownloadQueue()
+  const toast = useToast()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [initialized, setInitialized] = useState(false)
   const [inKindDonations, setInKindDonations] = useState<InKindDonation[]>([])
@@ -370,9 +374,10 @@ function TithingTab({ period, month, startDate, endDate }: {
         })),
       })
       setEmailSent(true)
+      toast.success('Tithing report emailed')
       setTimeout(() => setEmailSent(false), 5000)
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err?.message ?? 'Failed to send report')
     } finally {
       setEmailing(false)
     }
@@ -576,6 +581,7 @@ function ContributionsTab({ period, month, startDate, endDate }: {
 }) {
   const { data, isLoading } = useContributionPreview(period, month, startDate, endDate)
   const { addJob } = useDownloadQueue()
+  const toast = useToast()
   const [emailing, setEmailing] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
 
@@ -594,9 +600,10 @@ function ContributionsTab({ period, month, startDate, endDate }: {
     try {
       await api.emailContributionReport({ period, month, start_date: startDate, end_date: endDate })
       setEmailSent(true)
+      toast.success('Contributions report emailed')
       setTimeout(() => setEmailSent(false), 5000)
     } catch (err: any) {
-      alert(err.message)
+      toast.error(err?.message ?? 'Failed to send report')
     } finally {
       setEmailing(false)
     }

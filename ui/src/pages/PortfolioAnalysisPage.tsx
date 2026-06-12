@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Header from '../components/layout/Header'
+import { useToast } from '../components/Toast'
 import { usePortfolioAnalysis, usePortfolioTargets, useSetPortfolioTargets, useDrawdownPredictions, usePredictDrawdown } from '../hooks/usePortfolioAnalysis'
 import { formatCurrency, formatPct } from '../utils/format'
 import type { PortfolioTargetItem } from '../types'
@@ -29,6 +30,7 @@ function Skeleton({ className = '' }: { className?: string }) {
 
 export default function PortfolioAnalysisPage() {
   const [tab, setTab] = useState<Tab>('risk')
+  const toast = useToast()
   const { data, isLoading } = usePortfolioAnalysis()
   const { data: targetsData } = usePortfolioTargets()
   const setTargets = useSetPortfolioTargets()
@@ -36,6 +38,15 @@ export default function PortfolioAnalysisPage() {
   const predictDrawdown = usePredictDrawdown()
   const [predictSymbol, setPredictSymbol] = useState('')
   const [adhocResult, setAdhocResult] = useState<{ symbol: string; prob: number; risk: string } | null>(null)
+
+  const runPrediction = () => {
+    const sym = predictSymbol.trim()
+    if (!sym) return
+    predictDrawdown.mutate(sym, {
+      onSuccess: (d) => setAdhocResult({ symbol: d.symbol, prob: d.drawdown_probability, risk: d.risk_level }),
+      onError: (err: any) => toast.error(err?.message ?? `Couldn't predict ${sym}`),
+    })
+  }
 
   // Target editor state
   const [editTargets, setEditTargets] = useState<PortfolioTargetItem[]>([])
@@ -443,21 +454,11 @@ export default function PortfolioAnalysisPage() {
                     placeholder="e.g. AAPL"
                     className="w-32 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500"
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && predictSymbol.trim()) {
-                        predictDrawdown.mutate(predictSymbol.trim(), {
-                          onSuccess: (d) => setAdhocResult({ symbol: d.symbol, prob: d.drawdown_probability, risk: d.risk_level }),
-                        })
-                      }
+                      if (e.key === 'Enter') runPrediction()
                     }}
                   />
                   <button
-                    onClick={() => {
-                      if (predictSymbol.trim()) {
-                        predictDrawdown.mutate(predictSymbol.trim(), {
-                          onSuccess: (d) => setAdhocResult({ symbol: d.symbol, prob: d.drawdown_probability, risk: d.risk_level }),
-                        })
-                      }
-                    }}
+                    onClick={runPrediction}
                     disabled={predictDrawdown.isPending || !predictSymbol.trim()}
                     className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                   >
