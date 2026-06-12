@@ -641,3 +641,49 @@ class NatebotQueue(Base):
 
     def __repr__(self) -> str:
         return f"<NatebotQueue cat={self.category!r} delivered={self.delivered!r}>"
+
+
+class ChatMessage(Base):
+    """A single persisted chat message (user or assistant) scoped to a user."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)  # "user" | "assistant"
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChatMessage role={self.role!r} user_id={self.user_id!r}>"
+
+
+class DrawdownFavorite(Base):
+    """A symbol a user has saved for quick drawdown-risk prediction."""
+
+    __tablename__ = "drawdown_favorites"
+    __table_args__ = (
+        UniqueConstraint("user_id", "symbol", name="uq_drawdown_favorite_user_symbol"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<DrawdownFavorite symbol={self.symbol!r} user_id={self.user_id!r}>"

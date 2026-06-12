@@ -1,9 +1,83 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Header from '../components/layout/Header'
 import { useToast } from '../components/Toast'
-import { usePortfolioAnalysis, usePortfolioTargets, useSetPortfolioTargets, useDrawdownPredictions, usePredictDrawdown } from '../hooks/usePortfolioAnalysis'
+import { usePortfolioAnalysis, usePortfolioTargets, useSetPortfolioTargets, useDrawdownPredictions, usePredictDrawdown, useDrawdownFavorites, useAddDrawdownFavorite, useRemoveDrawdownFavorite } from '../hooks/usePortfolioAnalysis'
+import { useWatchlists, useAddSymbol } from '../hooks/useMarketData'
 import { formatCurrency, formatPct } from '../utils/format'
 import type { PortfolioTargetItem } from '../types'
+
+function AddToWatchlistButton({ symbol }: { symbol: string }) {
+  const { data } = useWatchlists()
+  const addSymbol = useAddSymbol()
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const watchlists = data?.watchlists ?? []
+
+  const toggle = () => {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 4, left: r.right })
+    }
+    setOpen((o) => !o)
+  }
+
+  const add = (id: string, name: string) => {
+    setOpen(false)
+    addSymbol.mutate(
+      { id, symbol },
+      {
+        onSuccess: () => toast.success(`Added ${symbol} to ${name}`),
+        onError: (e: any) => toast.error(e?.message ?? `Couldn't add ${symbol}`),
+      },
+    )
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        aria-label={`Add ${symbol} to a watchlist`}
+        title="Add to watchlist"
+        className="text-slate-500 hover:text-sky-400 transition-colors"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+      {open && pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-[81] min-w-[180px] max-h-64 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-xl shadow-black/40 py-1"
+            style={{ top: pos.top, left: pos.left, transform: 'translateX(-100%)' }}
+          >
+            <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-500">Add to watchlist</div>
+            {watchlists.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-500">No watchlists yet</div>
+            ) : (
+              watchlists.map((wl) => (
+                <button
+                  key={wl.id}
+                  onClick={() => add(wl.id, wl.name)}
+                  className="w-full text-left px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                >
+                  {wl.name}
+                </button>
+              ))
+            )}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  )
+}
 
 type Tab = 'risk' | 'rebalance' | 'tlh' | 'drawdown'
 
@@ -36,16 +110,38 @@ export default function PortfolioAnalysisPage() {
   const setTargets = useSetPortfolioTargets()
   const { data: ddData, isLoading: ddLoading } = useDrawdownPredictions()
   const predictDrawdown = usePredictDrawdown()
+  const { data: favData } = useDrawdownFavorites()
+  const addFavorite = useAddDrawdownFavorite()
+  const removeFavorite = useRemoveDrawdownFavorite()
   const [predictSymbol, setPredictSymbol] = useState('')
   const [adhocResult, setAdhocResult] = useState<{ symbol: string; prob: number; risk: string } | null>(null)
 
-  const runPrediction = () => {
-    const sym = predictSymbol.trim()
+  const favorites = favData?.favorites ?? []
+  const favoriteSet = new Set(favorites.map((f) => f.symbol))
+
+  const runPrediction = (symbolArg?: string) => {
+    const sym = (symbolArg ?? predictSymbol).trim().toUpperCase()
     if (!sym) return
+    setPredictSymbol(sym)
     predictDrawdown.mutate(sym, {
       onSuccess: (d) => setAdhocResult({ symbol: d.symbol, prob: d.drawdown_probability, risk: d.risk_level }),
       onError: (err: any) => toast.error(err?.message ?? `Couldn't predict ${sym}`),
     })
+  }
+
+  const toggleFavorite = (symbol: string) => {
+    const sym = symbol.trim().toUpperCase()
+    if (!sym) return
+    if (favoriteSet.has(sym)) {
+      removeFavorite.mutate(sym, {
+        onError: (e: any) => toast.error(e?.message ?? `Couldn't remove ${sym}`),
+      })
+    } else {
+      addFavorite.mutate(sym, {
+        onSuccess: () => toast.success(`Saved ${sym}`),
+        onError: (e: any) => toast.error(e?.message ?? `Couldn't save ${sym}`),
+      })
+    }
   }
 
   // Target editor state
@@ -152,7 +248,8 @@ export default function PortfolioAnalysisPage() {
                         <th className="pb-2 pr-4 text-right">Volatility</th>
                         <th className="pb-2 pr-4 text-right">Beta</th>
                         <th className="pb-2 pr-4 text-right">Drawdown</th>
-                        <th className="pb-2 text-right">P&L</th>
+                        <th className="pb-2 pr-4 text-right">P&L</th>
+                        <th className="pb-2 text-right w-8"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700/50">
@@ -178,12 +275,17 @@ export default function PortfolioAnalysisPage() {
                               </span>
                             ) : '—'}
                           </td>
-                          <td className="py-2.5 text-right">
+                          <td className="py-2.5 pr-4 text-right">
                             {h.unrealized_gl != null ? (
                               <span className={Number(h.unrealized_gl) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                                 {Number(h.unrealized_gl) >= 0 ? '+' : ''}{formatCurrency(h.unrealized_gl)}
                               </span>
                             ) : '—'}
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <div className="flex justify-end">
+                              <AddToWatchlistButton symbol={h.symbol} />
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -458,12 +560,30 @@ export default function PortfolioAnalysisPage() {
                     }}
                   />
                   <button
-                    onClick={runPrediction}
+                    onClick={() => runPrediction()}
                     disabled={predictDrawdown.isPending || !predictSymbol.trim()}
                     className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
                   >
                     {predictDrawdown.isPending ? 'Running...' : 'Predict'}
                   </button>
+                  {predictSymbol.trim() && (
+                    <button
+                      onClick={() => toggleFavorite(predictSymbol)}
+                      title={favoriteSet.has(predictSymbol.trim().toUpperCase()) ? 'Remove from saved' : 'Save symbol'}
+                      aria-label="Toggle saved symbol"
+                      className={`transition-colors ${
+                        favoriteSet.has(predictSymbol.trim().toUpperCase())
+                          ? 'text-amber-400 hover:text-amber-300'
+                          : 'text-slate-500 hover:text-amber-400'
+                      }`}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24"
+                        fill={favoriteSet.has(predictSymbol.trim().toUpperCase()) ? 'currentColor' : 'none'}
+                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                    </button>
+                  )}
                   {adhocResult && (
                     <div className="flex items-center gap-3 ml-4">
                       <span className="text-sm font-medium text-slate-100">{adhocResult.symbol}</span>
@@ -492,6 +612,37 @@ export default function PortfolioAnalysisPage() {
                 <p className="text-xs text-slate-500 mt-2">
                   Probability that this symbol drops &gt;5% from current price within 30 days.
                 </p>
+
+                {favorites.length > 0 && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-500">Saved:</span>
+                    {favorites.map((f) => (
+                      <span
+                        key={f.symbol}
+                        className="inline-flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-full pl-2.5 pr-1.5 py-1 text-xs"
+                      >
+                        <button
+                          onClick={() => runPrediction(f.symbol)}
+                          disabled={predictDrawdown.isPending}
+                          className="text-slate-200 hover:text-sky-400 transition-colors font-medium disabled:opacity-50"
+                        >
+                          {f.symbol}
+                        </button>
+                        <button
+                          onClick={() => toggleFavorite(f.symbol)}
+                          aria-label={`Remove ${f.symbol} from saved`}
+                          className="text-slate-600 hover:text-rose-400 transition-colors"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Holdings predictions table */}

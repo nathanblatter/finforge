@@ -1,11 +1,12 @@
 """POST /api/v1/chat — Claude-powered financial chat (server-side only)."""
 
 import logging
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
 import anthropic
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
@@ -13,12 +14,15 @@ from auth import require_auth
 from config import settings
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Account, Balance, Holding, MarketDataCache, PortfolioAnalysis, Transaction, Goal, GoalSnapshot, Watchlist
-from schemas.schemas import ChatRequest, ChatResponse
+from models.db_models import Account, Balance, ChatMessage, Holding, MarketDataCache, PortfolioAnalysis, Transaction, Goal, GoalSnapshot, Watchlist
+from schemas.schemas import ChatHistoryItem, ChatHistoryResponse, ChatRequest, ChatResponse
 
 logger = logging.getLogger("finforge.api.chat")
 
 router = APIRouter(tags=["chat"])
+
+# Cap on how many of a user's most-recent messages /chat/history returns.
+HISTORY_LIMIT = 200
 
 MONEY_MARKET_TICKERS = frozenset({"SPAXX", "SWVXX", "VMFXX", "FDRXX", "SPRXX"})
 
@@ -296,7 +300,63 @@ def chat(
             system=system_prompt,
             messages=messages,
         )
-        return ChatResponse(reply=response.content[0].text)
+        reply = response.content[0].text
     except Exception as exc:
         logger.error("Claude chat API error: %s", exc, exc_info=True)
         return ChatResponse(reply="I encountered an error processing your request. Please try again.")
+
+    # Persist the exchange so it survives a page refresh. Best-effort: a storage
+    # failure (e.g. table not yet migrated) must not break the chat response.
+    _persist_exchange(db, user_id, payload.message, reply)
+    return ChatResponse(reply=reply)
+
+
+def _persist_exchange(db: Session, user_id: str | None, user_msg: str, reply: str) -> None:
+    if not user_id:
+        return
+    try:
+        uid = uuid.UUID(user_id)
+        db.add(ChatMessage(user_id=uid, role="user", content=user_msg))
+        db.add(ChatMessage(user_id=uid, role="assistant", content=reply))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("Failed to persist chat exchange: %s", exc)
+
+
+@router.get("/chat/history", response_model=ChatHistoryResponse)
+def get_chat_history(
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(require_auth),
+) -> ChatHistoryResponse:
+    """Return the current user's chat history, oldest first."""
+    user_id = token_payload.get("sub")
+    if not user_id:
+        return ChatHistoryResponse(messages=[])
+    try:
+        rows = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.user_id == uuid.UUID(user_id))
+            .order_by(desc(ChatMessage.created_at))
+            .limit(HISTORY_LIMIT)
+            .all()
+        )
+    except Exception as exc:
+        logger.warning("Failed to load chat history: %s", exc)
+        return ChatHistoryResponse(messages=[])
+    # Fetched newest-first for the limit; reverse to chronological order.
+    rows.reverse()
+    return ChatHistoryResponse(messages=[ChatHistoryItem.model_validate(r) for r in rows])
+
+
+@router.delete("/chat/history", status_code=status.HTTP_204_NO_CONTENT)
+def clear_chat_history(
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(require_auth),
+) -> None:
+    """Delete the current user's entire chat history."""
+    user_id = token_payload.get("sub")
+    if not user_id:
+        return
+    db.query(ChatMessage).filter(ChatMessage.user_id == uuid.UUID(user_id)).delete()
+    db.commit()

@@ -43,3 +43,26 @@ export function usePredictDrawdown() {
     },
   })
 }
+
+export function useDrawdownFavorites() {
+  return useQuery({
+    queryKey: ['portfolio', 'favorites'],
+    queryFn: api.getDrawdownFavorites,
+  })
+}
+
+export function useAddDrawdownFavorite() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (symbol: string) => api.addDrawdownFavorite(symbol),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolio', 'favorites'] }),
+  })
+}
+
+export function useRemoveDrawdownFavorite() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (symbol: string) => api.removeDrawdownFavorite(symbol),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolio', 'favorites'] }),
+  })
+}

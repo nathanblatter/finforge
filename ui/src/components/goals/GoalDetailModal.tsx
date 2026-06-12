@@ -53,6 +53,11 @@ export default function GoalDetailModal({ goalId, onClose }: GoalDetailModalProp
   const deleteGoal = useDeleteGoal()
   const updateStatus = useUpdateGoalStatus()
 
+  const setStatus = (status: 'active' | 'paused' | 'completed' | 'failed') =>
+    updateStatus.mutate({ id: goalId, status }, { onSuccess: onClose })
+
+  const isTerminal = goal?.status === 'completed' || goal?.status === 'failed'
+
   // Snapshots come newest-first from API; reverse for chart (oldest → newest)
   const chartData = goal?.snapshots
     ? [...goal.snapshots].reverse().map((s) => ({
@@ -83,20 +88,49 @@ export default function GoalDetailModal({ goalId, onClose }: GoalDetailModalProp
             </div>
           )}
           <div className="flex items-center gap-2 ml-4 shrink-0">
+            {goal && !isTerminal && (
+              <button
+                onClick={() => setStatus('completed')}
+                disabled={updateStatus.isPending}
+                className="text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Complete
+              </button>
+            )}
             {goal && goal.status === 'active' && (
               <button
-                onClick={() => updateStatus.mutate({ id: goalId, status: 'paused' }, { onSuccess: onClose })}
-                className="text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg transition-colors"
+                onClick={() => setStatus('paused')}
+                disabled={updateStatus.isPending}
+                className="text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
               >
                 Pause
               </button>
             )}
             {goal && goal.status === 'paused' && (
               <button
-                onClick={() => updateStatus.mutate({ id: goalId, status: 'active' }, { onSuccess: onClose })}
-                className="text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg transition-colors"
+                onClick={() => setStatus('active')}
+                disabled={updateStatus.isPending}
+                className="text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
               >
                 Resume
+              </button>
+            )}
+            {goal && !isTerminal && (
+              <button
+                onClick={() => setStatus('failed')}
+                disabled={updateStatus.isPending}
+                className="text-xs text-slate-400 hover:text-slate-200 bg-slate-700/60 hover:bg-slate-700 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Mark Failed
+              </button>
+            )}
+            {goal && isTerminal && (
+              <button
+                onClick={() => setStatus('active')}
+                disabled={updateStatus.isPending}
+                className="text-xs text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Reopen
               </button>
             )}
             {goal && (

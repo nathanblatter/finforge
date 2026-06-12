@@ -13,8 +13,11 @@ from sqlalchemy.orm import Session
 
 from auth import require_auth
 from database import get_db
-from models.db_models import Account, DrawdownPrediction, Holding, PortfolioAnalysis, PortfolioTarget
+from models.db_models import Account, DrawdownFavorite, DrawdownPrediction, Holding, PortfolioAnalysis, PortfolioTarget
 from schemas.schemas import (
+    DrawdownFavoriteAddRequest,
+    DrawdownFavoriteItem,
+    DrawdownFavoritesResponse,
     DrawdownPredictionRequest,
     DrawdownPredictionResponse,
     PortfolioAnalysisResponse,
@@ -368,3 +371,67 @@ def get_predictions(
         model_trained_at=meta.get("trained_at") if meta else None,
         model_auc=Decimal(str(meta.get("val_auc", 0))) if meta else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Drawdown favorites — user-saved symbols for quick re-prediction
+# ---------------------------------------------------------------------------
+
+@router.get("/favorites", response_model=DrawdownFavoritesResponse)
+def list_favorites(
+    db: Session = Depends(get_db),
+    payload: dict = Depends(require_auth),
+):
+    """Return the current user's saved drawdown symbols, newest first."""
+    user_id = uuid.UUID(payload["sub"])
+    rows = (
+        db.query(DrawdownFavorite)
+        .filter(DrawdownFavorite.user_id == user_id)
+        .order_by(desc(DrawdownFavorite.created_at))
+        .all()
+    )
+    return DrawdownFavoritesResponse(
+        favorites=[DrawdownFavoriteItem.model_validate(r) for r in rows]
+    )
+
+
+@router.post("/favorites", response_model=DrawdownFavoritesResponse, status_code=status.HTTP_201_CREATED)
+def add_favorite(
+    body: DrawdownFavoriteAddRequest,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(require_auth),
+):
+    """Save a symbol to the user's drawdown favorites (idempotent)."""
+    user_id = uuid.UUID(payload["sub"])
+    symbol = body.symbol.upper().strip()
+    if not symbol:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Symbol is required")
+
+    existing = db.query(DrawdownFavorite).filter_by(user_id=user_id, symbol=symbol).first()
+    if not existing:
+        db.add(DrawdownFavorite(user_id=user_id, symbol=symbol))
+        db.commit()
+
+    rows = (
+        db.query(DrawdownFavorite)
+        .filter(DrawdownFavorite.user_id == user_id)
+        .order_by(desc(DrawdownFavorite.created_at))
+        .all()
+    )
+    return DrawdownFavoritesResponse(
+        favorites=[DrawdownFavoriteItem.model_validate(r) for r in rows]
+    )
+
+
+@router.delete("/favorites/{symbol}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_favorite(
+    symbol: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(require_auth),
+):
+    """Remove a symbol from the user's drawdown favorites."""
+    user_id = uuid.UUID(payload["sub"])
+    row = db.query(DrawdownFavorite).filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+    if row:
+        db.delete(row)
+        db.commit()

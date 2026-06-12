@@ -15,6 +15,13 @@ jobs:
           # Build all images
           docker compose build --no-cache
 
+          # Apply database migrations before rolling out new code.
+          # Runs alembic inside the freshly-built API image with the repo root
+          # mounted (alembic config lives at the repo root, not in the image).
+          echo "Running database migrations..."
+          docker compose run --rm --no-deps -v "$PWD":/repo -w /repo finforge-api \
+            alembic upgrade head || { echo "ERROR: migrations failed — aborting deploy"; exit 1; }
+
           # --- Zero-downtime deploy: finforge-api ---
           OLD_API=$(docker compose ps -q finforge-api 2>/dev/null | head -1)
 
