@@ -357,6 +357,13 @@ def train_and_persist() -> None:
                         HoldingRow.account_id == acct.id, HoldingRow.snapshot_date == latest_date
                     ).distinct().all()]
 
+                    # Alert threshold tightens in volatile/bear regimes
+                    try:
+                        from integrations.market_regime import get_drawdown_alert_threshold
+                        alert_threshold = get_drawdown_alert_threshold()
+                    except Exception:
+                        alert_threshold = 0.6
+
                     warnings = []
                     today_date = date.today()
                     with httpx.Client(
@@ -398,13 +405,13 @@ def train_and_persist() -> None:
                                     drawdown_probability=round(prob, 4), model_version=trained_at,
                                 ))
 
-                            if prob > 0.6:
+                            if prob > alert_threshold:
                                 warnings.append((sym, prob))
                             time.sleep(0.1)
 
                     if warnings:
                         from notify import queue_notification
-                        lines = ["🔮 Drawdown Risk Alert"]
+                        lines = [f"🔮 Drawdown Risk Alert (threshold {alert_threshold:.0%})"]
                         for sym, prob in sorted(warnings, key=lambda x: x[1], reverse=True):
                             level = "VERY HIGH" if prob > 0.6 else "HIGH"
                             lines.append(f"  {sym}: {prob*100:.0f}% probability of >5% drop ({level})")
