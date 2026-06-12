@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Header from '../components/layout/Header'
 import WatchlistPanel from '../components/watchlists/WatchlistPanel'
 import OptionsChainModal from '../components/watchlists/OptionsChainModal'
+import PriceAlertsPanel from '../components/watchlists/PriceAlertsPanel'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { useWatchlists, useCreateWatchlist, useDeleteWatchlist } from '../hooks/useMarketData'
@@ -127,6 +128,8 @@ export default function WatchlistsPage() {
           </div>
         </div>
       )}
+
+      <PriceAlertsPanel />
 
       {/* Options chain modal */}
       {optionsSymbol && (

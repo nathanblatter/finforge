@@ -687,3 +687,61 @@ class DrawdownFavorite(Base):
 
     def __repr__(self) -> str:
         return f"<DrawdownFavorite symbol={self.symbol!r} user_id={self.user_id!r}>"
+
+
+class Notification(Base):
+    """A generic, non-goal alert (budget threshold, price alert, etc.) surfaced
+    on the Alerts page alongside goal alerts."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # "budget" | "price"
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    alert_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    is_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<Notification source={self.source!r} type={self.alert_type!r} ack={self.is_acknowledged!r}>"
+
+
+class Budget(Base):
+    """A monthly spending limit for a transaction category."""
+
+    __tablename__ = "budgets"
+    __table_args__ = (
+        UniqueConstraint("category", name="uq_budget_category"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    monthly_limit: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<Budget category={self.category!r} limit={self.monthly_limit!r}>"
+
+
+class PriceAlert(Base):
+    """A one-shot price threshold alert for a symbol."""
+
+    __tablename__ = "price_alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String(10), nullable=False)  # "above" | "below"
+    threshold: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<PriceAlert {self.symbol!r} {self.direction!r} {self.threshold!r} active={self.is_active!r}>"

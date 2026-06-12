@@ -10,12 +10,42 @@ function alertTypeBadge(alertType: string): string {
   }
 }
 
+function alertTypeBadgeFor(alertType: string): string {
+  switch (alertType) {
+    case 'off_track':
+    case 'budget_exceeded':
+      return 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+    case 'at_risk':
+    case 'budget_warning':
+      return 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+    case 'completed':
+    case 'price_above':
+    case 'price_below':
+      return 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+    default:
+      return 'bg-slate-700/60 text-slate-400 border border-slate-600'
+  }
+}
+
 function alertTypeLabel(alertType: string): string {
   switch (alertType) {
-    case 'off_track':  return 'Off Track'
-    case 'at_risk':    return 'At Risk'
-    case 'completed':  return 'Completed'
-    default:           return alertType.replace(/_/g, ' ')
+    case 'off_track':       return 'Off Track'
+    case 'at_risk':         return 'At Risk'
+    case 'completed':       return 'Completed'
+    case 'budget_exceeded': return 'Over Budget'
+    case 'budget_warning':  return 'Budget Warning'
+    case 'price_above':     return 'Price Above'
+    case 'price_below':     return 'Price Below'
+    default:                return alertType.replace(/_/g, ' ')
+  }
+}
+
+function sourceLabel(source: string): string {
+  switch (source) {
+    case 'goal':   return 'Goal'
+    case 'budget': return 'Budget'
+    case 'price':  return 'Price'
+    default:       return source
   }
 }
 
@@ -42,12 +72,17 @@ export default function AlertsList({ alerts, onAcknowledge, isAcknowledging }: A
           key={alert.id}
           className={`flex items-start gap-4 py-4 px-1 transition-opacity ${alert.is_acknowledged ? 'opacity-50' : ''}`}
         >
-          <span className={`shrink-0 mt-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${alertTypeBadge(alert.alert_type)}`}>
+          <span className={`shrink-0 mt-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${alertTypeBadgeFor(alert.alert_type)}`}>
             {alertTypeLabel(alert.alert_type)}
           </span>
 
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-200 truncate">{alert.goal_name}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-slate-200 truncate">{alert.title}</p>
+              <span className="shrink-0 text-[10px] uppercase tracking-wider text-slate-500 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                {sourceLabel(alert.source)}
+              </span>
+            </div>
             <p className="text-sm text-slate-400 mt-0.5">{alert.message}</p>
             <p className="text-xs text-slate-600 mt-1">{formatDate(alert.created_at)}</p>
           </div>

@@ -421,10 +421,15 @@ class GoalStatusPatch(BaseModel):
 # ---------------------------------------------------------------------------
 
 class GoalAlertResponse(BaseModel):
+    """A unified alert item. `source` distinguishes goal alerts from generic
+    notifications (budget, price). `title` is the display label (goal name,
+    budget category, or symbol). Goal fields are null for non-goal alerts."""
     model_config = ConfigDict(from_attributes=False)
     id: uuid.UUID
-    goal_id: uuid.UUID
-    goal_name: str
+    source: str = "goal"
+    title: str
+    goal_id: Optional[uuid.UUID] = None
+    goal_name: Optional[str] = None
     alert_type: str
     message: str
     is_acknowledged: bool
@@ -437,6 +442,59 @@ class AlertsListResponse(BaseModel):
     alerts: list[GoalAlertResponse]
     total: int
     unacknowledged_count: int
+
+
+# ---------------------------------------------------------------------------
+# Budgets
+# ---------------------------------------------------------------------------
+
+class BudgetItem(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    category: str
+    monthly_limit: Decimal
+    spent: Decimal
+    pct: float
+    status: str  # "ok" | "warning" | "over"
+
+
+class BudgetsListResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    budgets: list[BudgetItem]
+    month: str
+
+
+class BudgetUpsertRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    category: str
+    monthly_limit: Decimal
+
+
+# ---------------------------------------------------------------------------
+# Price Alerts
+# ---------------------------------------------------------------------------
+
+class PriceAlertItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    symbol: str
+    direction: str  # "above" | "below"
+    threshold: Decimal
+    is_active: bool
+    last_triggered_at: Optional[datetime]
+    created_at: datetime
+    last_price: Optional[Decimal] = None  # enriched from market_data_cache
+
+
+class PriceAlertsListResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    alerts: list[PriceAlertItem]
+
+
+class PriceAlertCreateRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    direction: str  # "above" | "below"
+    threshold: Decimal
 
 
 # ---------------------------------------------------------------------------
