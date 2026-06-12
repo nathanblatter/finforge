@@ -7,7 +7,7 @@ rows are sent, and a row is marked delivered only after a successful send.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -18,6 +18,9 @@ logger = logging.getLogger("finforge.cron.imessage")
 
 # Send oldest-first; cap per run so a backlog can't hammer the gateway.
 BATCH_SIZE = 20
+# Drop (don't send) anything older than this — prevents a stale backlog from
+# blasting all at once if the gateway was unreachable for a while.
+MAX_AGE_MINUTES = 120
 
 
 def deliver_pending_notifications() -> None:
@@ -30,6 +33,19 @@ def deliver_pending_notifications() -> None:
     headers = {"X-API-Key": settings.imessage_api_key, "Content-Type": "application/json"}
 
     with get_session() as session:
+        # Suppress stale messages instead of delivering them late.
+        stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=MAX_AGE_MINUTES)
+        dropped = (
+            session.query(NatebotQueueRow)
+            .filter(NatebotQueueRow.delivered.is_(False), NatebotQueueRow.created_at < stale_cutoff)
+            .update(
+                {NatebotQueueRow.delivered: True, NatebotQueueRow.delivered_at: datetime.now(timezone.utc)},
+                synchronize_session=False,
+            )
+        )
+        if dropped:
+            logger.info("[imessage] suppressed %d stale message(s) (>%dm old)", dropped, MAX_AGE_MINUTES)
+
         rows = (
             session.query(NatebotQueueRow)
             .filter(NatebotQueueRow.delivered.is_(False))
