@@ -1045,3 +1045,175 @@ def _build_contributions_pdf(
         pdf.add_chart(timeline_fig)
 
     return pdf.build()
+
+
+# ---------------------------------------------------------------------------
+# FinForge Wrapped — Claude-narrated year in review
+# ---------------------------------------------------------------------------
+
+def _wrapped_stats(db: Session, year: int) -> dict:
+    """Compute the raw year-in-review stats Claude narrates."""
+    start, end = date(year, 1, 1), date(year, 12, 31)
+
+    txns = (
+        db.query(Transaction)
+        .filter(
+            Transaction.date >= start,
+            Transaction.date <= end,
+            Transaction.is_pending.is_(False),
+            Transaction.amount > 0,
+            (Transaction.category.is_(None)) | (Transaction.category != "Investment Transfer"),
+        )
+        .all()
+    )
+
+    total_spend = sum(float(t.amount) for t in txns)
+    by_cat: dict[str, float] = defaultdict(float)
+    by_month: dict[str, float] = defaultdict(float)
+    by_merchant_total: dict[str, float] = defaultdict(float)
+    by_merchant_count: dict[str, int] = defaultdict(int)
+    largest = None
+
+    for t in txns:
+        by_cat[t.category or "Other"] += float(t.amount)
+        by_month[t.date.strftime("%B")] += float(t.amount)
+        if t.merchant_name:
+            m = t.merchant_name.strip()
+            by_merchant_total[m] += float(t.amount)
+            by_merchant_count[m] += 1
+        if largest is None or float(t.amount) > largest[1]:
+            largest = (t.merchant_name or t.category or "unknown", float(t.amount), t.date.isoformat())
+
+    # Net worth change: sum of each account's first and last balance in the year
+    first_total = 0.0
+    last_total = 0.0
+    for acct in db.query(Account).filter(Account.is_active.is_(True)).all():
+        first = (
+            db.query(Balance).filter(Balance.account_id == acct.id, Balance.balance_date >= start)
+            .order_by(Balance.balance_date.asc()).first()
+        )
+        last = (
+            db.query(Balance).filter(Balance.account_id == acct.id, Balance.balance_date <= end)
+            .order_by(Balance.balance_date.desc()).first()
+        )
+        sign = -1.0 if acct.account_type == "credit_card" else 1.0
+        if first:
+            first_total += sign * float(first.balance_amount)
+        if last:
+            last_total += sign * float(last.balance_amount)
+
+    # Best/worst holding by unrealized G/L% at the latest snapshot of the year
+    latest_snap = (
+        db.query(sqla_func.max(Holding.snapshot_date))
+        .filter(Holding.snapshot_date <= end)
+        .scalar()
+    )
+    best = worst = None
+    if latest_snap:
+        for h in db.query(Holding).filter(Holding.snapshot_date == latest_snap).all():
+            if h.cost_basis is None or float(h.cost_basis) <= 0:
+                continue
+            gl_pct = (float(h.market_value) - float(h.cost_basis)) / float(h.cost_basis) * 100
+            if best is None or gl_pct > best[1]:
+                best = (h.symbol, round(gl_pct, 1))
+            if worst is None or gl_pct < worst[1]:
+                worst = (h.symbol, round(gl_pct, 1))
+
+    top_merchants = sorted(by_merchant_total.items(), key=lambda x: x[1], reverse=True)[:5]
+    most_visited = sorted(by_merchant_count.items(), key=lambda x: x[1], reverse=True)[:5]
+    biggest_month = max(by_month.items(), key=lambda x: x[1]) if by_month else None
+
+    return {
+        "year": year,
+        "total_spend": round(total_spend, 2),
+        "transaction_count": len(txns),
+        "top_categories": sorted(by_cat.items(), key=lambda x: x[1], reverse=True)[:5],
+        "top_merchants_by_total": top_merchants,
+        "top_merchants_by_visits": most_visited,
+        "biggest_month": biggest_month,
+        "largest_purchase": largest,
+        "net_worth_start": round(first_total, 2),
+        "net_worth_end": round(last_total, 2),
+        "net_worth_change": round(last_total - first_total, 2),
+        "best_holding": best,
+        "worst_holding": worst,
+    }
+
+
+@router.get("/wrapped")
+def get_wrapped(
+    year: Optional[int] = Query(default=None, ge=2020, le=2100),
+    regenerate: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """FinForge Wrapped: stats + a Claude-written year in review.
+    Narratives are cached in claude_insights (one per year)."""
+    import json as _json
+
+    from config import settings
+    from models.db_models import ClaudeInsight
+
+    today = date.today()
+    if year is None:
+        year = today.year - 1 if today.month <= 2 else today.year
+
+    insight_type = f"wrapped_{year}"
+    if not regenerate:
+        cached = (
+            db.query(ClaudeInsight)
+            .filter(ClaudeInsight.insight_type == insight_type)
+            .order_by(ClaudeInsight.created_at.desc())
+            .first()
+        )
+        if cached:
+            payload = _json.loads(cached.content)
+            payload["cached"] = True
+            return payload
+
+    stats = _wrapped_stats(db, year)
+    if stats["transaction_count"] == 0:
+        raise HTTPException(status_code=404, detail=f"No transaction data for {year}")
+
+    partial = year == today.year
+    narrative = None
+    if settings.anthropic_api_key:
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=800,
+                system=(
+                    "You write FinForge Wrapped — a fun, Spotify-Wrapped-style year in review "
+                    "of Nathan's personal finances. Second person, playful but not cringey, "
+                    "150-250 words. Reference specific numbers, merchants, and months from the "
+                    "stats. Celebrate wins (net worth growth, investing) and gently roast one "
+                    "spending habit. No financial advice, no bullet points — flowing prose with "
+                    "a couple of section-break emoji."
+                    + (" The year is still in progress, so frame it as a mid-year check-in."
+                       if partial else "")
+                ),
+                messages=[{"role": "user", "content": f"Stats:\n{_json.dumps(stats, indent=2)}"}],
+            )
+            narrative = response.content[0].text
+        except Exception as exc:
+            logger.error("Wrapped narrative generation failed: %s", exc)
+
+    payload = {"stats": stats, "narrative": narrative, "partial_year": partial, "cached": False}
+
+    # Cache only complete years with a narrative — partial years change daily
+    if narrative and not partial:
+        from datetime import datetime, timezone
+
+        db.query(ClaudeInsight).filter(ClaudeInsight.insight_type == insight_type).delete()
+        db.add(ClaudeInsight(
+            insight_date=today,
+            insight_type=insight_type,
+            content=_json.dumps({"stats": stats, "narrative": narrative, "partial_year": False}),
+            expires_at=datetime(year + 10, 1, 1, tzinfo=timezone.utc),
+        ))
+        db.commit()
+
+    return payload

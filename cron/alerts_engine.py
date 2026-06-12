@@ -170,3 +170,94 @@ def run_check_price_alerts() -> None:
                 pass
 
         logger.info("check_price_alerts: %d alert(s) fired", fired)
+
+
+# ---------------------------------------------------------------------------
+# Subscription price hikes
+# ---------------------------------------------------------------------------
+
+HIKE_MIN_PRIOR_CHARGES = 3
+HIKE_MIN_INCREASE_ABS = 1.0     # dollars
+HIKE_MIN_INCREASE_PCT = 0.03    # 3%
+HIKE_PRIOR_CONSISTENCY = 0.20   # priors must vary < 20% to call it a "price"
+
+
+def run_check_subscription_hikes() -> None:
+    """Detect recurring merchants whose latest charge jumped above their
+    historical price. Fires one notification per merchant per new price."""
+    from datetime import timedelta
+    from statistics import median
+
+    today = date.today()
+    since = today - timedelta(days=7 * 31)
+
+    with get_session() as session:
+        txns = (
+            session.query(TransactionRow)
+            .filter(
+                TransactionRow.date >= since,
+                TransactionRow.is_pending.is_(False),
+                TransactionRow.merchant_name.isnot(None),
+                TransactionRow.amount > 0,
+            )
+            .all()
+        )
+
+        groups: dict[str, list] = {}
+        for t in txns:
+            groups.setdefault(t.merchant_name.strip(), []).append(t)
+
+        fired = 0
+        for merchant, ts in groups.items():
+            if len(ts) < HIKE_MIN_PRIOR_CHARGES + 1:
+                continue
+            ts.sort(key=lambda t: (t.date, t.created_at))
+            latest = ts[-1]
+            priors = ts[:-1]
+
+            distinct_months = {(t.date.year, t.date.month) for t in priors}
+            if len(distinct_months) < 3:
+                continue
+
+            prior_amounts = [float(t.amount) for t in priors]
+            prior_med = median(prior_amounts)
+            if prior_med <= 0:
+                continue
+            # Priors must look like a stable price, not variable spend
+            spread = (max(prior_amounts) - min(prior_amounts)) / prior_med
+            if spread > HIKE_PRIOR_CONSISTENCY:
+                continue
+
+            new_amount = float(latest.amount)
+            increase = new_amount - prior_med
+            if increase < max(HIKE_MIN_INCREASE_ABS, prior_med * HIKE_MIN_INCREASE_PCT):
+                continue
+
+            # One alert per merchant per new price — message carries the price
+            price_tag = f"to ${new_amount:,.2f}"
+            existing = (
+                session.query(NotificationRow)
+                .filter(
+                    NotificationRow.source == "subscription",
+                    NotificationRow.title == merchant,
+                    NotificationRow.alert_type == "price_hike",
+                    NotificationRow.message.like(f"%{price_tag}%"),
+                )
+                .first()
+            )
+            if existing is not None:
+                continue
+
+            message = (
+                f"{merchant} went up {price_tag} from ${prior_med:,.2f} "
+                f"(+${increase:,.2f}, {increase / prior_med * 100:.0f}%) on {latest.date}."
+            )
+            _add_notification(session, "subscription", merchant, "price_hike", message)
+            fired += 1
+            try:
+                from notify import queue_notification
+                queue_notification("subscription_hike", f"💸 {message}", priority="normal")
+            except Exception:
+                pass
+
+        logger.info("check_subscription_hikes: %d hike alert(s) fired", fired)

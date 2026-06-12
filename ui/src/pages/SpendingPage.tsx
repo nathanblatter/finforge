@@ -6,6 +6,7 @@ import CardSplit from '../components/spending/CardSplit'
 import FixedExpensesPanel from '../components/spending/FixedExpensesPanel'
 import TransactionFeed from '../components/spending/TransactionFeed'
 import { ForecastPanel, AnomaliesPanel } from '../components/spending/ForecastPanel'
+import { SpendingHeatmap, MoneyFlowSankey, StreaksCard } from '../components/spending/SpendingViz'
 import Header from '../components/layout/Header'
 
 function MonthSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -84,8 +85,14 @@ export default function SpendingPage() {
 
       <AnomaliesPanel />
 
+      <MoneyFlowSankey month={month} />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <ForecastPanel />
+        <div className="lg:col-span-2 space-y-6">
+          <StreaksCard />
+          <SpendingHeatmap />
+        </div>
       </div>
 
       {txLoading || !transactions ? (
