@@ -4,7 +4,7 @@ import Header from '../components/layout/Header'
 import { useToast } from '../components/Toast'
 import { usePortfolioAnalysis, usePortfolioTargets, useSetPortfolioTargets, useDrawdownPredictions, usePredictDrawdown, useDrawdownFavorites, useAddDrawdownFavorite, useRemoveDrawdownFavorite } from '../hooks/usePortfolioAnalysis'
 import { useWatchlists, useAddSymbol } from '../hooks/useMarketData'
-import { FrontierTab, VolatilityTab, ProjectionsTab } from '../components/portfolio/QuantTabs'
+import { FrontierTab, VolatilityTab, ProjectionsTab, PerformanceTab } from '../components/portfolio/QuantTabs'
 import { useRegime } from '../hooks/useQuant'
 
 const REGIME_BADGES: Record<string, { label: string; cls: string }> = {
@@ -104,7 +104,7 @@ function AddToWatchlistButton({ symbol }: { symbol: string }) {
   )
 }
 
-type Tab = 'risk' | 'rebalance' | 'tlh' | 'drawdown' | 'frontier' | 'volatility' | 'projections'
+type Tab = 'risk' | 'rebalance' | 'tlh' | 'drawdown' | 'frontier' | 'volatility' | 'projections' | 'performance'
 
 const TABS: { label: string; value: Tab }[] = [
   { label: 'Risk & Allocation', value: 'risk' },
@@ -114,6 +114,7 @@ const TABS: { label: string; value: Tab }[] = [
   { label: 'Frontier', value: 'frontier' },
   { label: 'Volatility', value: 'volatility' },
   { label: 'Projections', value: 'projections' },
+  { label: 'Performance', value: 'performance' },
 ]
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -234,6 +235,8 @@ export default function PortfolioAnalysisPage() {
         <VolatilityTab />
       ) : tab === 'projections' ? (
         <ProjectionsTab />
+      ) : tab === 'performance' ? (
+        <PerformanceTab />
       ) : isLoading ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

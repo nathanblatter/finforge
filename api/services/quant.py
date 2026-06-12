@@ -366,3 +366,148 @@ def monte_carlo_projection(
         result["prob_hit_at_horizon"] = round(float(np.mean(values >= target_value)), 4)
         result["prob_hit_ever"] = round(float(np.mean(ever_hit)), 4)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Covered call screening
+# ---------------------------------------------------------------------------
+
+def best_covered_call(chain: dict, target_delta: float = 0.30) -> Optional[dict]:
+    """Pick the call contract closest to target delta with 20-45 DTE.
+
+    Returns contract details + premium math, or None if the chain has no
+    usable calls (e.g. mutual funds, illiquid names).
+    """
+    underlying = chain.get("underlyingPrice")
+    best = None
+    for _exp, strikes in (chain.get("callExpDateMap") or {}).items():
+        for _strike, contracts in strikes.items():
+            for c in contracts:
+                dte = c.get("daysToExpiration")
+                delta = c.get("delta")
+                bid, ask = c.get("bid"), c.get("ask")
+                if dte is None or delta is None or not (20 <= dte <= 45):
+                    continue
+                if delta <= 0 or delta > 0.6:
+                    continue
+                if bid is None or ask is None or bid <= 0 or ask <= 0:
+                    continue
+                premium = (bid + ask) / 2
+                score = abs(delta - target_delta)
+                if best is None or score < best["_score"]:
+                    best = {
+                        "_score": score,
+                        "strike": c.get("strikePrice"),
+                        "expiration_days": dte,
+                        "delta": round(float(delta), 3),
+                        "premium": round(float(premium), 2),
+                        "bid": float(bid),
+                        "ask": float(ask),
+                        "description": c.get("description"),
+                    }
+    if best is None or not underlying or underlying <= 0:
+        return best and None
+    best.pop("_score")
+    best["underlying_price"] = round(float(underlying), 2)
+    best["yield_pct"] = round(best["premium"] / float(underlying) * 100, 2)
+    best["annualized_yield_pct"] = round(
+        best["premium"] / float(underlying) * (365 / best["expiration_days"]) * 100, 1
+    )
+    return best
+
+
+# ---------------------------------------------------------------------------
+# Benchmark comparison (time-weighted return vs SPY)
+# ---------------------------------------------------------------------------
+
+def compute_twr_vs_benchmark(
+    snapshots: list[dict],
+    spy_by_date: dict,
+) -> dict:
+    """Chain daily Modified Dietz returns from holdings snapshots.
+
+    snapshots: [{date, value, cost_basis}] sorted ascending. The day-over-day
+    change in total cost basis approximates external flows (new money in /
+    proceeds out), so market return isn't polluted by contributions.
+    """
+    if len(snapshots) < 2:
+        raise ValueError("Need at least 2 holdings snapshots for benchmark comparison")
+
+    series = []
+    port_idx = 100.0
+    spy_idx = 100.0
+    prev = snapshots[0]
+    prev_spy = None
+
+    # Find the SPY close at or before a date
+    spy_dates = sorted(spy_by_date.keys())
+
+    def spy_close_on(d):
+        lo, hi = 0, len(spy_dates) - 1
+        best = None
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if spy_dates[mid] <= d:
+                best = spy_dates[mid]
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return spy_by_date[best] if best is not None else None
+
+    prev_spy = spy_close_on(prev["date"])
+    series.append({"date": prev["date"].isoformat(), "portfolio": 100.0, "spy": 100.0})
+
+    for snap in snapshots[1:]:
+        v_prev, v_now = prev["value"], snap["value"]
+        flow = snap["cost_basis"] - prev["cost_basis"]
+        denom = v_prev + max(flow, 0.0)
+        if denom > 0:
+            r = (v_now - v_prev - flow) / denom
+            # Guard against snapshot glitches (account transfers, bad data)
+            r = max(min(r, 0.25), -0.25)
+            port_idx *= 1.0 + r
+
+        spy_now = spy_close_on(snap["date"])
+        if spy_now and prev_spy and prev_spy > 0:
+            spy_idx *= spy_now / prev_spy
+        prev_spy = spy_now or prev_spy
+
+        series.append({
+            "date": snap["date"].isoformat(),
+            "portfolio": round(port_idx, 2),
+            "spy": round(spy_idx, 2),
+        })
+        prev = snap
+
+    return {
+        "series": series,
+        "portfolio_return_pct": round(port_idx - 100.0, 2),
+        "spy_return_pct": round(spy_idx - 100.0, 2),
+        "excess_return_pct": round(port_idx - spy_idx, 2),
+        "n_snapshots": len(snapshots),
+        "start": snapshots[0]["date"].isoformat(),
+        "end": snapshots[-1]["date"].isoformat(),
+    }
+
+
+async def fetch_spy_closes_by_date() -> dict:
+    """SPY daily closes keyed by date, for benchmark alignment."""
+    from datetime import datetime as _dt, timezone as _tz
+
+    try:
+        data = await schwab_api_get(
+            "/pricehistory",
+            params={"symbol": "SPY", "periodType": "year", "period": 1,
+                    "frequencyType": "daily", "frequency": 1},
+            market_data=True,
+        )
+    except Exception as exc:
+        logger.warning("[quant] SPY history failed: %s", exc)
+        return {}
+    out = {}
+    for c in data.get("candles", []):
+        if c.get("close") is None or c.get("datetime") is None:
+            continue
+        d = _dt.fromtimestamp(c["datetime"] / 1000, tz=_tz.utc).date()
+        out[d] = float(c["close"])
+    return out
