@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import { formatCurrency } from '../../utils/format'
@@ -93,7 +94,12 @@ export default function WrappedCard() {
               <div className="space-y-1.5">
                 {data.stats.top_merchants_by_total.map(([m, v]) => (
                   <div key={m} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-300 truncate pr-3">{m}</span>
+                    <Link
+                      to={`/merchant?name=${encodeURIComponent(m)}`}
+                      className="text-slate-300 truncate pr-3 hover:text-sky-400 transition-colors"
+                    >
+                      {m}
+                    </Link>
                     <span className="text-slate-400 tabular-nums shrink-0">{formatCurrency(v)}</span>
                   </div>
                 ))}
@@ -104,7 +110,12 @@ export default function WrappedCard() {
               <div className="space-y-1.5">
                 {data.stats.top_merchants_by_visits.map(([m, n]) => (
                   <div key={m} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-300 truncate pr-3">{m}</span>
+                    <Link
+                      to={`/merchant?name=${encodeURIComponent(m)}`}
+                      className="text-slate-300 truncate pr-3 hover:text-sky-400 transition-colors"
+                    >
+                      {m}
+                    </Link>
                     <span className="text-slate-400 tabular-nums shrink-0">{n}×</span>
                   </div>
                 ))}

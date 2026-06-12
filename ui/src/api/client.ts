@@ -47,6 +47,10 @@ import type {
   MoneyFlowResponse,
   StreaksResponse,
   WrappedResponse,
+  SearchResponse,
+  MerchantDetailResponse,
+  BillsForecastResponse,
+  WhatIfResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -369,6 +373,21 @@ export const api = {
 
   getStreaks: () =>
     apiFetch<StreaksResponse>('/spending/streaks'),
+
+  searchSpending: (q: string) =>
+    apiFetch<SearchResponse>(`/spending/search?q=${encodeURIComponent(q)}`),
+
+  getMerchantDetail: (name: string) =>
+    apiFetch<MerchantDetailResponse>(`/spending/merchant?name=${encodeURIComponent(name)}`),
+
+  getBillsForecast: (days = 30) =>
+    apiFetch<BillsForecastResponse>(`/spending/bills-forecast?days=${days}`),
+
+  runWhatIf: (weights: Record<string, number>) =>
+    apiFetch<WhatIfResponse>('/quant/whatif', {
+      method: 'POST',
+      body: JSON.stringify({ weights }),
+    }),
 
   getWrapped: (year?: number, regenerate = false) => {
     const q = new URLSearchParams()

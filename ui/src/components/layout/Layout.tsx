@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import DownloadQueue from './DownloadQueue'
 import ErrorBoundary from '../ErrorBoundary'
+import CommandPalette from '../CommandPalette'
 import { DownloadQueueProvider } from '../../hooks/useDownloadQueue'
 
 export default function Layout() {
@@ -15,6 +16,7 @@ export default function Layout() {
           </ErrorBoundary>
         </main>
         <DownloadQueue />
+        <CommandPalette />
       </div>
     </DownloadQueueProvider>
   )

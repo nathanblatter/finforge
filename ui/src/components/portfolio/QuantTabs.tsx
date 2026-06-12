@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import { useFrontier, useClusters, useIvHv, useMonteCarlo } from '../../hooks/useQuant'
 import { formatCurrency, formatPct } from '../../utils/format'
-import type { MonteCarloResponse } from '../../types'
+import type { FrontierResponse, MonteCarloResponse, WhatIfResponse } from '../../types'
 
 function Panel({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
@@ -44,6 +44,7 @@ function WeightsList({ weights }: { weights: Record<string, number> }) {
 export function FrontierTab() {
   const { data, isLoading, error } = useFrontier()
   const { data: clusters, isLoading: clustersLoading } = useClusters()
+  const [whatIf, setWhatIf] = useState<WhatIfResponse | null>(null)
 
   if (isLoading) return <div className="space-y-4"><Skeleton className="h-80" /><Skeleton className="h-40" /></div>
   if (error || !data) {
@@ -60,6 +61,7 @@ export function FrontierTab() {
     { name: 'Max Sharpe', vol: data.max_sharpe.vol * 100, ret: data.max_sharpe.ret * 100, fill: '#34d399' },
     { name: 'Min Variance', vol: data.min_variance.vol * 100, ret: data.min_variance.ret * 100, fill: '#38bdf8' },
     ...(data.current ? [{ name: 'Your Portfolio', vol: data.current.vol * 100, ret: data.current.ret * 100, fill: '#f59e0b' }] : []),
+    ...(whatIf ? [{ name: 'What-If', vol: whatIf.whatif.vol * 100, ret: whatIf.whatif.ret * 100, fill: '#e879f9' }] : []),
   ]
 
   return (
@@ -98,6 +100,8 @@ export function FrontierTab() {
           </ResponsiveContainer>
         </div>
       </Panel>
+
+      <WhatIfPanel data={data} onResult={setWhatIf} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Panel title="Max Sharpe Portfolio" sub={`Sharpe ${data.max_sharpe.sharpe.toFixed(2)} — ${(data.max_sharpe.ret * 100).toFixed(1)}% return / ${(data.max_sharpe.vol * 100).toFixed(1)}% vol`}>
@@ -154,6 +158,114 @@ export function FrontierTab() {
         )}
       </Panel>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// What-if rebalancer
+// ---------------------------------------------------------------------------
+
+function WhatIfDelta({ label, now, was, pct = false }: { label: string; now: number; was: number | null; pct?: boolean }) {
+  const fmt = (v: number) => pct ? `${(v * 100).toFixed(1)}%` : v.toFixed(2)
+  const delta = was != null ? now - was : null
+  return (
+    <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+      <div className="text-[11px] text-slate-500 uppercase tracking-wider">{label}</div>
+      <div className="text-lg font-bold text-fuchsia-300">{fmt(now)}</div>
+      {delta != null && Math.abs(delta) > 1e-6 && (
+        <div className={`text-[11px] ${delta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+          {delta > 0 ? '+' : ''}{fmt(delta)} vs current
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WhatIfPanel({ data, onResult }: { data: FrontierResponse; onResult: (r: WhatIfResponse | null) => void }) {
+  const initial = useMemo(
+    () => Object.fromEntries(data.per_symbol.map((s) => [s.symbol, Math.round(s.current_weight * 1000) / 10])),
+    [data.per_symbol],
+  )
+  const [weights, setWeights] = useState<Record<string, number>>(initial)
+  const [touched, setTouched] = useState(false)
+  const [result, setResult] = useState<WhatIfResponse | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout>>()
+
+  const mutation = useMutation({
+    mutationFn: api.runWhatIf,
+    onSuccess: (r) => {
+      setResult(r)
+      onResult(r)
+    },
+  })
+  const { mutate } = mutation
+
+  useEffect(() => {
+    if (!touched) return
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => mutate(weights), 400)
+    return () => clearTimeout(timer.current)
+  }, [weights, touched, mutate])
+
+  const total = Object.values(weights).reduce((s, v) => s + v, 0)
+
+  const reset = () => {
+    setWeights(initial)
+    setTouched(false)
+    setResult(null)
+    onResult(null)
+  }
+
+  return (
+    <Panel
+      title="What-If Rebalancer"
+      sub="Drag the sliders to a hypothetical allocation — the magenta diamond on the chart above shows where it lands. Weights are normalized to 100%."
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-3 mb-4">
+        {data.per_symbol.map((s) => {
+          const w = weights[s.symbol] ?? 0
+          const normPct = total > 0 ? (w / total) * 100 : 0
+          return (
+            <div key={s.symbol} className="flex items-center gap-3">
+              <span className="w-14 text-xs font-medium text-slate-300">{s.symbol}</span>
+              <input
+                type="range" min="0" max="100" step="0.5" value={w}
+                onChange={(e) => {
+                  setTouched(true)
+                  setWeights((prev) => ({ ...prev, [s.symbol]: Number(e.target.value) }))
+                }}
+                className="flex-1 accent-fuchsia-400"
+              />
+              <span className="w-12 text-right text-xs text-slate-400 tabular-nums">{normPct.toFixed(1)}%</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        {result ? (
+          <div className="grid grid-cols-3 gap-3 flex-1 min-w-[280px]">
+            <WhatIfDelta label="Exp. Return" now={result.whatif.ret} was={result.current?.ret ?? null} pct />
+            <WhatIfDelta label="Volatility" now={result.whatif.vol} was={result.current?.vol ?? null} pct />
+            <WhatIfDelta label="Sharpe" now={result.whatif.sharpe} was={result.current?.sharpe ?? null} />
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500 self-center">
+            {mutation.isPending ? 'Computing…' : touched ? '' : 'Sliders start at your current allocation.'}
+          </p>
+        )}
+        <button
+          onClick={reset}
+          disabled={!touched}
+          className="px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors disabled:opacity-40"
+        >
+          Reset to current
+        </button>
+      </div>
+      {mutation.isError && (
+        <p className="text-xs text-rose-400 mt-2">Couldn't compute — try again in a moment.</p>
+      )}
+    </Panel>
   )
 }
 

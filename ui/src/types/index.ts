@@ -652,3 +652,76 @@ export interface SectorsResponse {
   unclassified_pct: number
   holdings: { symbol: string; market_value: number; classification: string }[]
 }
+
+// ---------------------------------------------------------------------------
+// Wave 9: search, merchant drill-down, bill forecast, what-if rebalancer
+// ---------------------------------------------------------------------------
+
+export interface SearchMerchant {
+  merchant: string
+  count: number
+  total: number
+  last_date: string
+}
+
+export interface SearchTransaction {
+  id: string
+  date: string
+  amount: number
+  merchant_name: string | null
+  category: string | null
+  account_alias: string
+  is_pending: boolean
+}
+
+export interface SearchResponse {
+  merchants: SearchMerchant[]
+  transactions: SearchTransaction[]
+}
+
+export interface MerchantDetailResponse {
+  merchant: string
+  category: string | null
+  has_rule: boolean
+  total_spent: number
+  visits: number
+  avg_amount: number
+  first_seen: string
+  last_seen: string
+  is_recurring: boolean
+  monthly_median: number | null
+  accounts: string[]
+  trend: { month: string; total: number; count: number }[]
+  recent: { id: string; date: string; amount: number; category: string | null; account_alias: string }[]
+}
+
+export interface BillEvent {
+  date: string
+  merchant: string
+  amount: number
+  kind: 'bill' | 'income'
+  category: string | null
+  cadence_days: number
+  balance_after: number | null
+}
+
+export interface BillsForecastResponse {
+  as_of: string
+  days: number
+  checking_balance: number | null
+  events: BillEvent[]
+  projected_low: { date: string; balance: number } | null
+  projected_end_balance: number | null
+}
+
+export interface WhatIfPoint {
+  ret: number
+  vol: number
+  sharpe: number
+}
+
+export interface WhatIfResponse {
+  symbols: string[]
+  whatif: WhatIfPoint & { weights: Record<string, number> }
+  current: WhatIfPoint | null
+}

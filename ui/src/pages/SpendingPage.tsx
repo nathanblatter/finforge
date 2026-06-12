@@ -7,6 +7,7 @@ import FixedExpensesPanel from '../components/spending/FixedExpensesPanel'
 import TransactionFeed from '../components/spending/TransactionFeed'
 import { ForecastPanel, AnomaliesPanel } from '../components/spending/ForecastPanel'
 import { SpendingHeatmap, MoneyFlowSankey, StreaksCard } from '../components/spending/SpendingViz'
+import BillCalendar from '../components/spending/BillCalendar'
 import Header from '../components/layout/Header'
 
 function MonthSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -84,6 +85,8 @@ export default function SpendingPage() {
       </div>
 
       <AnomaliesPanel />
+
+      <BillCalendar />
 
       <MoneyFlowSankey month={month} />
 

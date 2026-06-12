@@ -6,6 +6,7 @@ GET /api/v1/spending/transactions — filterable transaction feed
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
@@ -16,7 +17,7 @@ from statistics import median
 
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Account, Budget, CategoryRule, SpendingAnomaly, Transaction
+from models.db_models import Account, Balance, Budget, CategoryRule, SpendingAnomaly, Transaction
 from schemas.schemas import (
     CardSpend,
     CategoryRuleCreate,
@@ -705,4 +706,328 @@ def get_spending_streaks(
         "longest_streak_90d": longest_streak,
         "no_spend_days_this_month": no_spend_month,
         "no_spend_days_90d": no_spend_90d,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Global search (command palette)
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/search")
+def search_spending(
+    q: str = Query(min_length=2, max_length=80),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Search merchants and transactions by name/category over the last year."""
+    like = f"%{q.strip()}%"
+    since = date.today() - timedelta(days=365)
+
+    merchant_rows = (
+        db.query(
+            Transaction.merchant_name,
+            func.count(Transaction.id),
+            func.sum(Transaction.amount),
+            func.max(Transaction.date),
+        )
+        .filter(
+            Transaction.merchant_name.ilike(like),
+            Transaction.date >= since,
+            Transaction.is_pending.is_(False),
+            Transaction.amount > 0,
+        )
+        .group_by(Transaction.merchant_name)
+        .order_by(func.count(Transaction.id).desc())
+        .limit(8)
+        .all()
+    )
+
+    txn_rows = (
+        db.query(Transaction, Account)
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(
+            Transaction.date >= since,
+            (Transaction.merchant_name.ilike(like)) | (Transaction.category.ilike(like)),
+        )
+        .order_by(Transaction.date.desc())
+        .limit(15)
+        .all()
+    )
+
+    return {
+        "merchants": [
+            {
+                "merchant": m,
+                "count": int(n),
+                "total": round(float(total), 2),
+                "last_date": last.isoformat(),
+            }
+            for m, n, total, last in merchant_rows
+        ],
+        "transactions": [
+            {
+                "id": str(t.id),
+                "date": t.date.isoformat(),
+                "amount": float(t.amount),
+                "merchant_name": t.merchant_name,
+                "category": t.category,
+                "account_alias": a.alias,
+                "is_pending": t.is_pending,
+            }
+            for t, a in txn_rows
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Merchant drill-down
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/merchant")
+def get_merchant_detail(
+    name: str = Query(min_length=1, max_length=255),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Full history for one merchant: totals, monthly trend, recurrence,
+    recent transactions. Matched case-insensitively on the exact name."""
+    rows = (
+        db.query(Transaction, Account)
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(
+            func.lower(Transaction.merchant_name) == name.strip().lower(),
+            Transaction.is_pending.is_(False),
+        )
+        .order_by(Transaction.date.desc())
+        .all()
+    )
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Merchant not found")
+
+    canonical = rows[0][0].merchant_name
+    debits = [t for t, _ in rows if float(t.amount) > 0]
+    amounts = [float(t.amount) for t in debits]
+    total_spent = sum(amounts)
+    visits = len(debits)
+
+    cats = [t.category for t, _ in rows if t.category]
+    category = max(set(cats), key=cats.count) if cats else None
+    rule = db.query(CategoryRule).filter(func.lower(CategoryRule.merchant) == name.strip().lower()).first()
+    if rule:
+        category = rule.category
+
+    # Recurrence: same heuristic as the subscriptions view
+    distinct_months = {(t.date.year, t.date.month) for t in debits}
+    monthly_median = None
+    is_recurring = False
+    if visits >= 3 and len(distinct_months) >= 3 and amounts:
+        med = median(amounts)
+        if med > 0 and (max(amounts) - min(amounts)) / med <= 0.5:
+            is_recurring = True
+            monthly_median = round(med, 2)
+
+    # Monthly trend over the trailing 12 months (zero-filled)
+    today = date.today()
+    month_keys: list[str] = []
+    y, m = today.year, today.month
+    for _i in range(12):
+        month_keys.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    month_keys.reverse()
+    by_month: dict[str, dict[str, float]] = {k: {"total": 0.0, "count": 0} for k in month_keys}
+    for t in debits:
+        key = f"{t.date.year:04d}-{t.date.month:02d}"
+        if key in by_month:
+            by_month[key]["total"] += float(t.amount)
+            by_month[key]["count"] += 1
+
+    return {
+        "merchant": canonical,
+        "category": category,
+        "has_rule": rule is not None,
+        "total_spent": round(total_spent, 2),
+        "visits": visits,
+        "avg_amount": round(total_spent / visits, 2) if visits else 0.0,
+        "first_seen": min(t.date for t, _ in rows).isoformat(),
+        "last_seen": max(t.date for t, _ in rows).isoformat(),
+        "is_recurring": is_recurring,
+        "monthly_median": monthly_median,
+        "accounts": sorted({a.alias for _, a in rows}),
+        "trend": [
+            {"month": k, "total": round(by_month[k]["total"], 2), "count": by_month[k]["count"]}
+            for k in month_keys
+        ],
+        "recent": [
+            {
+                "id": str(t.id),
+                "date": t.date.isoformat(),
+                "amount": float(t.amount),
+                "category": t.category,
+                "account_alias": a.alias,
+            }
+            for t, a in rows[:20]
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Bill calendar / low-balance forecast
+# ---------------------------------------------------------------------------
+
+# Checking debits in these categories are CC payments / transfers whose
+# underlying charges are already projected individually — skip to avoid
+# double counting.
+_BILL_EXCLUDED_CATEGORIES = {"credit card payment", "payment", "transfer", "investment transfer"}
+
+
+def _predict_occurrences(
+    txns: list[Transaction], today: date, horizon: date, min_gap: int
+) -> Optional[tuple[float, list[date], int]]:
+    """If a merchant's charges look recurring, return (median amount,
+    predicted dates within [today, horizon], cadence days). None otherwise."""
+    dates = sorted({t.date for t in txns})
+    if len(dates) < 3:
+        return None
+    if len({(d.year, d.month) for d in dates}) < 3:
+        return None
+    amounts = [abs(float(t.amount)) for t in txns]
+    med = median(amounts)
+    if med <= 0:
+        return None
+    if (max(amounts) - min(amounts)) / med > 0.4:
+        return None
+    gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+    gap = round(median(gaps))
+    # Below min_gap is habitual spending (the same lunch order every week),
+    # not a bill; >quarterly is too sparse to predict from a 7-month window.
+    if gap < min_gap or gap > 95:
+        return None
+    nxt = dates[-1] + timedelta(days=gap)
+    while nxt < today:
+        nxt += timedelta(days=gap)
+    occurrences = []
+    while nxt <= horizon:
+        occurrences.append(nxt)
+        nxt += timedelta(days=gap)
+    if not occurrences:
+        return None
+    return med, occurrences, gap
+
+
+@router.get("/spending/bills-forecast")
+def get_bills_forecast(
+    days: int = Query(default=30, ge=7, le=60),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Project recurring bills and income over the next N days against the
+    current checking balance. Card charges are projected on their charge date
+    (not the statement payment date), so the balance path is approximate."""
+    today = date.today()
+    horizon = today + timedelta(days=days)
+    since = today - timedelta(days=210)
+
+    rows = (
+        db.query(Transaction, Account)
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(
+            Transaction.date >= since,
+            Transaction.is_pending.is_(False),
+            Transaction.merchant_name.isnot(None),
+        )
+        .all()
+    )
+
+    bill_groups: dict[str, list[Transaction]] = defaultdict(list)
+    income_groups: dict[str, list[Transaction]] = defaultdict(list)
+    for t, a in rows:
+        amt = float(t.amount)
+        cat = (t.category or "").strip().lower()
+        if cat in _BILL_EXCLUDED_CATEGORIES:
+            continue
+        if amt > 0:
+            bill_groups[t.merchant_name.strip()].append(t)
+        elif amt < 0 and a.account_type == "checking":
+            income_groups[t.merchant_name.strip()].append(t)
+
+    events = []
+    # Bills must be ~monthly or sparser; income may be biweekly (paychecks)
+    for merchant, ts in bill_groups.items():
+        pred = _predict_occurrences(ts, today, horizon, min_gap=20)
+        if pred is None:
+            continue
+        amount, dates_due, gap = pred
+        cats = [t.category for t in ts if t.category]
+        category = max(set(cats), key=cats.count) if cats else None
+        for d in dates_due:
+            events.append({
+                "date": d,
+                "merchant": merchant,
+                "amount": -round(amount, 2),
+                "kind": "bill",
+                "category": category,
+                "cadence_days": gap,
+            })
+    for merchant, ts in income_groups.items():
+        pred = _predict_occurrences(ts, today, horizon, min_gap=6)
+        if pred is None:
+            continue
+        amount, dates_due, gap = pred
+        for d in dates_due:
+            events.append({
+                "date": d,
+                "merchant": merchant,
+                "amount": round(amount, 2),
+                "kind": "income",
+                "category": None,
+                "cadence_days": gap,
+            })
+
+    # Same-day ordering: bills before income, so the projected low is conservative
+    events.sort(key=lambda e: (e["date"], e["amount"]))
+
+    # Current checking balance (sum across active checking accounts)
+    checking_balance = None
+    checking = db.query(Account).filter(Account.account_type == "checking", Account.is_active.is_(True)).all()
+    balances = []
+    for acct in checking:
+        latest = (
+            db.query(Balance)
+            .filter_by(account_id=acct.id)
+            .order_by(Balance.balance_date.desc(), Balance.created_at.desc())
+            .first()
+        )
+        if latest is not None:
+            balances.append(float(latest.balance_amount))
+    if balances:
+        checking_balance = round(sum(balances), 2)
+
+    projected_low = None
+    end_balance = None
+    if checking_balance is not None:
+        running = checking_balance
+        low, low_date = running, today
+        for e in events:
+            running += e["amount"]
+            e["balance_after"] = round(running, 2)
+            if running < low:
+                low, low_date = running, e["date"]
+        projected_low = {"date": low_date.isoformat(), "balance": round(low, 2)}
+        end_balance = round(running, 2)
+    else:
+        for e in events:
+            e["balance_after"] = None
+
+    for e in events:
+        e["date"] = e["date"].isoformat()
+
+    return {
+        "as_of": today.isoformat(),
+        "days": days,
+        "checking_balance": checking_balance,
+        "events": events,
+        "projected_low": projected_low,
+        "projected_end_balance": end_balance,
     }

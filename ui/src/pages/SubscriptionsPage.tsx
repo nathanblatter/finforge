@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import Header from '../components/layout/Header'
 import { useSubscriptions } from '../hooks/useSpending'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -62,7 +63,14 @@ export default function SubscriptionsPage() {
                 <tbody className="divide-y divide-slate-700/50">
                   {subs.map((s) => (
                     <tr key={s.merchant} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="py-2.5 pr-4 font-medium text-slate-100">{s.merchant}</td>
+                      <td className="py-2.5 pr-4 font-medium text-slate-100">
+                        <Link
+                          to={`/merchant?name=${encodeURIComponent(s.merchant)}`}
+                          className="hover:text-sky-400 transition-colors"
+                        >
+                          {s.merchant}
+                        </Link>
+                      </td>
                       <td className="py-2.5 pr-4 text-slate-400">{s.category ?? '—'}</td>
                       <td className="py-2.5 pr-4 text-right text-slate-200">{formatCurrency(s.monthly_amount)}</td>
                       <td className="py-2.5 pr-4 text-center text-slate-400">{s.months_seen}</td>

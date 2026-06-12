@@ -79,6 +79,33 @@ async def get_frontier(
 
 
 # ---------------------------------------------------------------------------
+# What-if rebalancer
+# ---------------------------------------------------------------------------
+
+class WhatIfRequest(BaseModel):
+    weights: dict[str, float] = Field(
+        ..., description="symbol → proposed weight; renormalized server-side"
+    )
+
+
+@router.post("/whatif")
+async def run_whatif(
+    body: WhatIfRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_auth),
+):
+    """Risk/return/Sharpe for a hypothetical weighting of the held symbols —
+    powers the rebalancing sliders on the frontier chart."""
+    returns, symbols, weights, _total = await _returns_for_held(db)
+    if len(symbols) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 holdings for what-if analysis")
+    try:
+        return quant.compute_whatif(returns, symbols, body.weights, weights)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Correlation clusters
 # ---------------------------------------------------------------------------
 
