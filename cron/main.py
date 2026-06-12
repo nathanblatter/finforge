@@ -125,6 +125,17 @@ def check_price_alerts() -> None:
         logger.error("check_price_alerts failed:\n%s", traceback.format_exc())
 
 
+def weekly_digest() -> None:
+    """Assemble and email the weekly financial digest."""
+    logger.info("Running weekly_digest...")
+    try:
+        from digest import run_weekly_digest
+        run_weekly_digest()
+        logger.info("weekly_digest completed successfully.")
+    except Exception:
+        logger.error("weekly_digest failed:\n%s", traceback.format_exc())
+
+
 def drawdown_model_train() -> None:
     """Train/retrain the drawdown prediction model."""
     logger.info("Running drawdown_model_train...")
@@ -289,6 +300,14 @@ def build_scheduler() -> BlockingScheduler:
         trigger=CronTrigger(hour=2, minute=45, timezone=TIMEZONE),
         id="check_budget_alerts",
         name="Check Budget Alerts",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        weekly_digest,
+        trigger=CronTrigger(day_of_week="mon", hour=8, minute=0, timezone=TIMEZONE),
+        id="weekly_digest",
+        name="Weekly Email Digest",
         max_instances=1,
         coalesce=True,
     )
