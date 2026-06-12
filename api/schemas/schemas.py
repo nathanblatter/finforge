@@ -500,6 +500,34 @@ class ChatResponse(BaseModel):
     reply: str
 
 
+class ChatHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    role: str
+    content: str
+    created_at: datetime
+
+
+class ChatHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    messages: list[ChatHistoryItem] = []
+
+
+class DrawdownFavoriteAddRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+
+
+class DrawdownFavoriteItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    symbol: str
+    created_at: datetime
+
+
+class DrawdownFavoritesResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    favorites: list[DrawdownFavoriteItem] = []
+
+
 # ---------------------------------------------------------------------------
 # Market Data Cache
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import type {
   HealthResponse,
   ChatRequest,
   ChatResponse,
+  ChatHistoryResponse,
   Watchlist,
   WatchlistsListResponse,
   OptionsChainResponse,
@@ -23,6 +24,7 @@ import type {
   PortfolioTargetItem,
   DrawdownPrediction,
   PortfolioDrawdownResponse,
+  DrawdownFavoritesResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -141,6 +143,12 @@ export const api = {
   postChat: (req: ChatRequest) =>
     apiFetch<ChatResponse>('/chat', { method: 'POST', body: JSON.stringify(req) }),
 
+  getChatHistory: () =>
+    apiFetch<ChatHistoryResponse>('/chat/history'),
+
+  clearChatHistory: () =>
+    apiFetch<void>('/chat/history', { method: 'DELETE' }),
+
   // Watchlists
   getWatchlists: () =>
     apiFetch<WatchlistsListResponse>('/watchlists'),
@@ -199,6 +207,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ symbol }),
     }),
+
+  getDrawdownFavorites: () =>
+    apiFetch<DrawdownFavoritesResponse>('/portfolio/favorites'),
+
+  addDrawdownFavorite: (symbol: string) =>
+    apiFetch<DrawdownFavoritesResponse>('/portfolio/favorites', {
+      method: 'POST',
+      body: JSON.stringify({ symbol }),
+    }),
+
+  removeDrawdownFavorite: (symbol: string) =>
+    apiFetch<void>(`/portfolio/favorites/${symbol}`, { method: 'DELETE' }),
 
   // Reports
   getFinancialPreview: (period: string, month: string, startDate?: string, endDate?: string) =>

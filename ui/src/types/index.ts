@@ -191,6 +191,16 @@ export interface ChatResponse {
   reply: string
 }
 
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export interface ChatHistoryResponse {
+  messages: ChatHistoryItem[]
+}
+
 // ---------------------------------------------------------------------------
 // Market Data & Watchlists
 // ---------------------------------------------------------------------------
@@ -328,6 +338,15 @@ export interface PortfolioDrawdownResponse {
   predictions: DrawdownPrediction[]
   model_trained_at: string | null
   model_auc: number | null
+}
+
+export interface DrawdownFavoriteItem {
+  symbol: string
+  created_at: string
+}
+
+export interface DrawdownFavoritesResponse {
+  favorites: DrawdownFavoriteItem[]
 }
 
 export interface OptionsChainResponse {
