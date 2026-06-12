@@ -18,6 +18,11 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
 
+    # iMessage delivery gateway (imessage-api server on the Mac Mini, Tailscale-bound)
+    imessage_api_url: str = "http://100.79.61.79:8899"
+    imessage_api_key: str = ""
+    imessage_recipient: str = ""
+
     environment: str = "development"
     log_level: str = "INFO"
 
