@@ -25,6 +25,10 @@ import type {
   DrawdownPrediction,
   PortfolioDrawdownResponse,
   DrawdownFavoritesResponse,
+  BudgetItem,
+  BudgetsListResponse,
+  PriceAlertItem,
+  PriceAlertsListResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -210,6 +214,52 @@ export const api = {
 
   getDrawdownFavorites: () =>
     apiFetch<DrawdownFavoritesResponse>('/portfolio/favorites'),
+
+  // Budgets (API returns Decimal fields as strings — coerce to numbers)
+  getBudgets: async (): Promise<BudgetsListResponse> => {
+    const raw = await apiFetch<BudgetsListResponse>('/budgets')
+    return {
+      ...raw,
+      budgets: raw.budgets.map((b) => ({
+        ...b,
+        monthly_limit: Number(b.monthly_limit),
+        spent: Number(b.spent),
+        pct: Number(b.pct),
+      })),
+    }
+  },
+
+  upsertBudget: async (category: string, monthlyLimit: number): Promise<BudgetItem> => {
+    const b = await apiFetch<BudgetItem>('/budgets', {
+      method: 'PUT',
+      body: JSON.stringify({ category, monthly_limit: monthlyLimit }),
+    })
+    return { ...b, monthly_limit: Number(b.monthly_limit), spent: Number(b.spent), pct: Number(b.pct) }
+  },
+
+  deleteBudget: (category: string) =>
+    apiFetch<void>(`/budgets/${encodeURIComponent(category)}`, { method: 'DELETE' }),
+
+  // Price alerts
+  getPriceAlerts: async (): Promise<PriceAlertsListResponse> => {
+    const raw = await apiFetch<PriceAlertsListResponse>('/price-alerts')
+    return {
+      alerts: raw.alerts.map((a) => ({
+        ...a,
+        threshold: Number(a.threshold),
+        last_price: a.last_price == null ? null : Number(a.last_price),
+      })),
+    }
+  },
+
+  createPriceAlert: (symbol: string, direction: 'above' | 'below', threshold: number) =>
+    apiFetch<PriceAlertItem>('/price-alerts', {
+      method: 'POST',
+      body: JSON.stringify({ symbol, direction, threshold }),
+    }),
+
+  deletePriceAlert: (id: string) =>
+    apiFetch<void>(`/price-alerts/${id}`, { method: 'DELETE' }),
 
   addDrawdownFavorite: (symbol: string) =>
     apiFetch<DrawdownFavoritesResponse>('/portfolio/favorites', {

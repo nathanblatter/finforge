@@ -103,6 +103,28 @@ def check_goal_alerts() -> None:
         logger.error("check_goal_alerts failed:\n%s", traceback.format_exc())
 
 
+def check_budget_alerts() -> None:
+    """Evaluate monthly category budgets and notify on 80%/100% crossings."""
+    logger.info("Running check_budget_alerts...")
+    try:
+        from alerts_engine import run_check_budget_alerts
+        run_check_budget_alerts()
+        logger.info("check_budget_alerts completed successfully.")
+    except Exception:
+        logger.error("check_budget_alerts failed:\n%s", traceback.format_exc())
+
+
+def check_price_alerts() -> None:
+    """Compare active price alerts to cached quotes and fire one-shot alerts."""
+    logger.info("Running check_price_alerts...")
+    try:
+        from alerts_engine import run_check_price_alerts
+        run_check_price_alerts()
+        logger.info("check_price_alerts completed successfully.")
+    except Exception:
+        logger.error("check_price_alerts failed:\n%s", traceback.format_exc())
+
+
 def drawdown_model_train() -> None:
     """Train/retrain the drawdown prediction model."""
     logger.info("Running drawdown_model_train...")
@@ -262,6 +284,14 @@ def build_scheduler() -> BlockingScheduler:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        check_budget_alerts,
+        trigger=CronTrigger(hour=2, minute=45, timezone=TIMEZONE),
+        id="check_budget_alerts",
+        name="Check Budget Alerts",
+        max_instances=1,
+        coalesce=True,
+    )
 
     # Interval jobs
     scheduler.add_job(
@@ -277,6 +307,14 @@ def build_scheduler() -> BlockingScheduler:
         trigger=IntervalTrigger(minutes=15, timezone=TIMEZONE),
         id="market_data_sync",
         name="Market Data Sync",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        check_price_alerts,
+        trigger=IntervalTrigger(minutes=15, timezone=TIMEZONE),
+        id="check_price_alerts",
+        name="Check Price Alerts",
         max_instances=1,
         coalesce=True,
     )
@@ -314,6 +352,8 @@ ALL_SYNC_JOBS = {
     "generate_goal_snapshots": generate_goal_snapshots,
     "generate_claude_insights": generate_claude_insights,
     "check_goal_alerts": check_goal_alerts,
+    "check_budget_alerts": check_budget_alerts,
+    "check_price_alerts": check_price_alerts,
     "schwab_token_watchdog": schwab_token_watchdog,
 }
 

@@ -12,10 +12,40 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Goal, GoalAlert
+from models.db_models import Goal, GoalAlert, Notification
 from schemas.schemas import AlertsListResponse, GoalAlertResponse
 
 router = APIRouter(tags=["alerts"])
+
+
+def _goal_alert_to_item(alert: GoalAlert, goal_name: str) -> GoalAlertResponse:
+    return GoalAlertResponse(
+        id=alert.id,
+        source="goal",
+        title=goal_name,
+        goal_id=alert.goal_id,
+        goal_name=goal_name,
+        alert_type=alert.alert_type,
+        message=alert.message,
+        is_acknowledged=alert.is_acknowledged,
+        acknowledged_at=alert.acknowledged_at,
+        created_at=alert.created_at,
+    )
+
+
+def _notification_to_item(n: Notification) -> GoalAlertResponse:
+    return GoalAlertResponse(
+        id=n.id,
+        source=n.source,
+        title=n.title,
+        goal_id=None,
+        goal_name=None,
+        alert_type=n.alert_type,
+        message=n.message,
+        is_acknowledged=n.is_acknowledged,
+        acknowledged_at=n.acknowledged_at,
+        created_at=n.created_at,
+    )
 
 
 @router.get("/alerts", response_model=AlertsListResponse)
@@ -24,33 +54,22 @@ def list_alerts(
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key),
 ) -> AlertsListResponse:
-    """Active goal alerts. Unacknowledged only by default."""
-    q = (
-        db.query(GoalAlert, Goal.name.label("goal_name"))
-        .join(Goal, GoalAlert.goal_id == Goal.id)
-    )
+    """Unified alert feed — goal alerts plus generic notifications (budget, price).
+    Unacknowledged only by default."""
+    gq = db.query(GoalAlert, Goal.name.label("goal_name")).join(Goal, GoalAlert.goal_id == Goal.id)
+    nq = db.query(Notification)
     if not include_acknowledged:
-        q = q.filter(GoalAlert.is_acknowledged.is_(False))
-    rows = q.order_by(desc(GoalAlert.created_at)).all()
+        gq = gq.filter(GoalAlert.is_acknowledged.is_(False))
+        nq = nq.filter(Notification.is_acknowledged.is_(False))
 
-    alerts = [
-        GoalAlertResponse(
-            id=alert.id,
-            goal_id=alert.goal_id,
-            goal_name=goal_name,
-            alert_type=alert.alert_type,
-            message=alert.message,
-            is_acknowledged=alert.is_acknowledged,
-            acknowledged_at=alert.acknowledged_at,
-            created_at=alert.created_at,
-        )
-        for alert, goal_name in rows
-    ]
+    items = [_goal_alert_to_item(a, name) for a, name in gq.all()]
+    items += [_notification_to_item(n) for n in nq.order_by(desc(Notification.created_at)).all()]
+    items.sort(key=lambda a: a.created_at, reverse=True)
 
     return AlertsListResponse(
-        alerts=alerts,
-        total=len(alerts),
-        unacknowledged_count=sum(1 for a in alerts if not a.is_acknowledged),
+        alerts=items,
+        total=len(items),
+        unacknowledged_count=sum(1 for a in items if not a.is_acknowledged),
     )
 
 
@@ -60,24 +79,24 @@ def acknowledge_alert(
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key),
 ) -> GoalAlertResponse:
-    """Mark a goal alert as acknowledged."""
+    """Mark an alert as acknowledged. Works for goal alerts and notifications."""
+    now = datetime.now(tz=timezone.utc)
+
     alert = db.query(GoalAlert).filter_by(id=alert_id).first()
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    if alert is not None:
+        alert.is_acknowledged = True
+        alert.acknowledged_at = now
+        db.commit()
+        db.refresh(alert)
+        goal = db.query(Goal).filter_by(id=alert.goal_id).first()
+        return _goal_alert_to_item(alert, goal.name if goal else "Unknown")
 
-    alert.is_acknowledged = True
-    alert.acknowledged_at = datetime.now(tz=timezone.utc)
-    db.commit()
-    db.refresh(alert)
+    note = db.query(Notification).filter_by(id=alert_id).first()
+    if note is not None:
+        note.is_acknowledged = True
+        note.acknowledged_at = now
+        db.commit()
+        db.refresh(note)
+        return _notification_to_item(note)
 
-    goal = db.query(Goal).filter_by(id=alert.goal_id).first()
-    return GoalAlertResponse(
-        id=alert.id,
-        goal_id=alert.goal_id,
-        goal_name=goal.name if goal else "Unknown",
-        alert_type=alert.alert_type,
-        message=alert.message,
-        is_acknowledged=alert.is_acknowledged,
-        acknowledged_at=alert.acknowledged_at,
-        created_at=alert.created_at,
-    )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")

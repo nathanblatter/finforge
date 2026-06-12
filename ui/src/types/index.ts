@@ -130,8 +130,10 @@ export interface GoalsListResponse {
 
 export interface GoalAlertResponse {
   id: string
-  goal_id: string
-  goal_name: string
+  source: string          // 'goal' | 'budget' | 'price'
+  title: string
+  goal_id: string | null
+  goal_name: string | null
   alert_type: string
   message: string
   is_acknowledged: boolean
@@ -143,6 +145,36 @@ export interface AlertsListResponse {
   alerts: GoalAlertResponse[]
   total: number
   unacknowledged_count: number
+}
+
+// Budgets
+export interface BudgetItem {
+  category: string
+  monthly_limit: number
+  spent: number
+  pct: number
+  status: 'ok' | 'warning' | 'over'
+}
+
+export interface BudgetsListResponse {
+  budgets: BudgetItem[]
+  month: string
+}
+
+// Price alerts
+export interface PriceAlertItem {
+  id: string
+  symbol: string
+  direction: 'above' | 'below'
+  threshold: number
+  is_active: boolean
+  last_triggered_at: string | null
+  created_at: string
+  last_price: number | null
+}
+
+export interface PriceAlertsListResponse {
+  alerts: PriceAlertItem[]
 }
 
 export interface GoalSnapshotItem {
