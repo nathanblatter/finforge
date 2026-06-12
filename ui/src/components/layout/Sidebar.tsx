@@ -160,7 +160,7 @@ export default function Sidebar() {
               [
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-slate-700 text-sky-400'
+                  ? 'bg-slate-700 text-sky-400 shadow-[inset_3px_0_0_0_#38bdf8]'
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
               ].join(' ')
             }
@@ -177,7 +177,7 @@ export default function Sidebar() {
             [
               'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
               isActive
-                ? 'bg-slate-700 text-sky-400'
+                ? 'bg-slate-700 text-sky-400 shadow-[inset_3px_0_0_0_#38bdf8]'
                 : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
             ].join(' ')
           }
@@ -199,7 +199,7 @@ export default function Sidebar() {
             [
               'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
               isActive
-                ? 'bg-slate-700 text-sky-400'
+                ? 'bg-slate-700 text-sky-400 shadow-[inset_3px_0_0_0_#38bdf8]'
                 : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
             ].join(' ')
           }

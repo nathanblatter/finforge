@@ -2,6 +2,8 @@ import { useState } from 'react'
 import Header from '../components/layout/Header'
 import WatchlistPanel from '../components/watchlists/WatchlistPanel'
 import OptionsChainModal from '../components/watchlists/OptionsChainModal'
+import ConfirmDialog from '../components/ConfirmDialog'
+import { useToast } from '../components/Toast'
 import { useWatchlists, useCreateWatchlist, useDeleteWatchlist } from '../hooks/useMarketData'
 
 function Skeleton({ className = '' }: { className?: string }) {
@@ -12,12 +14,25 @@ export default function WatchlistsPage() {
   const { data, isLoading } = useWatchlists()
   const createWatchlist = useCreateWatchlist()
   const deleteWatchlist = useDeleteWatchlist()
+  const toast = useToast()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [optionsSymbol, setOptionsSymbol] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
 
   const watchlists = data?.watchlists ?? []
   const selected = watchlists.find((wl) => wl.id === selectedId) ?? watchlists[0] ?? null
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return
+    const { id, name } = pendingDelete
+    deleteWatchlist.mutate(id, {
+      onSuccess: () => toast.success(`Deleted "${name}"`),
+      onError: (err: any) => toast.error(err?.message ?? 'Failed to delete watchlist'),
+    })
+    if (selectedId === id) setSelectedId(null)
+    setPendingDelete(null)
+  }
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
@@ -79,9 +94,9 @@ export default function WatchlistsPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          deleteWatchlist.mutate(wl.id)
-                          if (selectedId === wl.id) setSelectedId(null)
+                          setPendingDelete({ id: wl.id, name: wl.name })
                         }}
+                        aria-label={`Delete watchlist ${wl.name}`}
                         className="text-slate-600 hover:text-rose-400 transition-colors"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
@@ -120,6 +135,21 @@ export default function WatchlistsPage() {
           onClose={() => setOptionsSymbol(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete watchlist?"
+        message={
+          <>
+            This will permanently delete <span className="text-slate-200 font-medium">"{pendingDelete?.name}"</span> and
+            all of its symbols. This can't be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   )
 }
