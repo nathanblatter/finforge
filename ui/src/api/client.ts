@@ -32,6 +32,14 @@ import type {
   BudgetsListResponse,
   PriceAlertItem,
   PriceAlertsListResponse,
+  FrontierResponse,
+  ClustersResponse,
+  IvHvResponse,
+  MonteCarloRequest,
+  MonteCarloResponse,
+  SpendingForecastResponse,
+  SpendingAnomaliesResponse,
+  RegimeResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -305,6 +313,37 @@ export const api = {
 
   removeDrawdownFavorite: (symbol: string) =>
     apiFetch<void>(`/portfolio/favorites/${symbol}`, { method: 'DELETE' }),
+
+  // Spending intelligence
+  getSpendingForecast: () =>
+    apiFetch<SpendingForecastResponse>('/spending/forecast'),
+
+  getSpendingAnomalies: (includeDismissed = false) =>
+    apiFetch<SpendingAnomaliesResponse>(
+      `/spending/anomalies${includeDismissed ? '?include_dismissed=true' : ''}`
+    ),
+
+  dismissAnomaly: (id: string) =>
+    apiFetch<void>(`/spending/anomalies/${id}/dismiss`, { method: 'POST' }),
+
+  // Quant analytics
+  getFrontier: () =>
+    apiFetch<FrontierResponse>('/quant/frontier'),
+
+  getClusters: (threshold = 0.65) =>
+    apiFetch<ClustersResponse>(`/quant/clusters?threshold=${threshold}`),
+
+  getIvHv: (symbols?: string) =>
+    apiFetch<IvHvResponse>(`/quant/iv-hv${symbols ? `?symbols=${symbols}` : ''}`),
+
+  runMonteCarlo: (body: MonteCarloRequest) =>
+    apiFetch<MonteCarloResponse>('/quant/montecarlo', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getRegime: () =>
+    apiFetch<RegimeResponse>('/quant/regime'),
 
   // Reports
   getFinancialPreview: (period: string, month: string, startDate?: string, endDate?: string) =>
