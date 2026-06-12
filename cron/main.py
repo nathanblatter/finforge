@@ -125,6 +125,50 @@ def check_price_alerts() -> None:
         logger.error("check_price_alerts failed:\n%s", traceback.format_exc())
 
 
+def market_regime() -> None:
+    """Classify the current market regime from SPY price action."""
+    logger.info("Running market_regime...")
+    try:
+        from integrations.market_regime import run_market_regime
+        run_market_regime()
+        logger.info("market_regime completed successfully.")
+    except Exception:
+        logger.error("market_regime failed:\n%s", traceback.format_exc())
+
+
+def market_intel() -> None:
+    """Flag upcoming earnings and IV spikes on held positions."""
+    logger.info("Running market_intel...")
+    try:
+        from integrations.market_intel import run_market_intel
+        run_market_intel()
+        logger.info("market_intel completed successfully.")
+    except Exception:
+        logger.error("market_intel failed:\n%s", traceback.format_exc())
+
+
+def spending_anomalies() -> None:
+    """Flag statistically unusual transactions and possible duplicate charges."""
+    logger.info("Running spending_anomalies...")
+    try:
+        from spending_anomalies import run_spending_anomalies
+        run_spending_anomalies()
+        logger.info("spending_anomalies completed successfully.")
+    except Exception:
+        logger.error("spending_anomalies failed:\n%s", traceback.format_exc())
+
+
+def category_model_train() -> None:
+    """Retrain the merchant→category classifier on labeled transactions."""
+    logger.info("Running category_model_train...")
+    try:
+        from integrations.category_model import train_category_model
+        train_category_model()
+        logger.info("category_model_train completed successfully.")
+    except Exception:
+        logger.error("category_model_train failed:\n%s", traceback.format_exc())
+
+
 def weekly_digest() -> None:
     """Assemble and email the weekly financial digest."""
     logger.info("Running weekly_digest...")
@@ -273,6 +317,22 @@ def build_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        market_regime,
+        trigger=CronTrigger(hour=2, minute=8, timezone=TIMEZONE),
+        id="market_regime",
+        name="Market Regime Detection",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        market_intel,
+        trigger=CronTrigger(hour=6, minute=30, timezone=TIMEZONE),
+        id="market_intel",
+        name="Market Intel (Earnings/IV)",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         drawdown_model_train,
         trigger=CronTrigger(hour=2, minute=10, timezone=TIMEZONE),
         id="drawdown_model_train",
@@ -309,6 +369,22 @@ def build_scheduler() -> BlockingScheduler:
         trigger=CronTrigger(hour=2, minute=45, timezone=TIMEZONE),
         id="check_budget_alerts",
         name="Check Budget Alerts",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        spending_anomalies,
+        trigger=CronTrigger(hour=2, minute=50, timezone=TIMEZONE),
+        id="spending_anomalies",
+        name="Spending Anomaly Detection",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        category_model_train,
+        trigger=CronTrigger(day_of_week="sun", hour=3, minute=30, timezone=TIMEZONE),
+        id="category_model_train",
+        name="Category Model Training",
         max_instances=1,
         coalesce=True,
     )
@@ -390,6 +466,10 @@ ALL_SYNC_JOBS = {
     "check_goal_alerts": check_goal_alerts,
     "check_budget_alerts": check_budget_alerts,
     "check_price_alerts": check_price_alerts,
+    "spending_anomalies": spending_anomalies,
+    "category_model_train": category_model_train,
+    "market_regime": market_regime,
+    "market_intel": market_intel,
     "schwab_token_watchdog": schwab_token_watchdog,
 }
 
