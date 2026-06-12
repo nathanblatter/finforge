@@ -764,3 +764,41 @@ class CategoryRule(Base):
 
     def __repr__(self) -> str:
         return f"<CategoryRule merchant={self.merchant!r} category={self.category!r}>"
+
+class SpendingAnomaly(Base):
+    """A transaction flagged as a statistical outlier or duplicate charge."""
+
+    __tablename__ = "spending_anomalies"
+    __table_args__ = (
+        UniqueConstraint("transaction_id", name="uq_spending_anomaly_txn"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    transaction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(String(50), nullable=False)  # "outlier" | "duplicate"
+    z_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2), nullable=True)
+    typical_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<SpendingAnomaly txn={self.transaction_id!r} reason={self.reason!r}>"
+
+class MarketRegime(Base):
+    """Daily market regime classification derived from SPY price action."""
+
+    __tablename__ = "market_regimes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    regime_date: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    regime: Mapped[str] = mapped_column(String(30), nullable=False)
+    realized_vol_20d: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    trend_60d: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    sma20_vs_sma50: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<MarketRegime {self.regime_date!r} {self.regime!r}>"

@@ -226,6 +226,13 @@ def run_plaid_sync() -> None:
     except Exception as exc:
         logger.error("[plaid_sync] Category rule application failed: %s", exc)
 
+    # ML fallback: categorize whatever the rules and Plaid mapping left as "Other"
+    try:
+        from integrations.category_model import apply_model_suggestions
+        apply_model_suggestions()
+    except Exception as exc:
+        logger.error("[plaid_sync] Category model application failed: %s", exc)
+
     logger.info("[plaid_sync] Sync complete for %d accounts", len(aliases))
 
 

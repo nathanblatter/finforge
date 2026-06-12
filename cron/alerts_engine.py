@@ -68,6 +68,12 @@ def run_check_budget_alerts() -> None:
                 continue
             pct = float(spent / limit * 100)
 
+            # Run-rate projection: flag a likely overspend before it happens
+            # (only once we're far enough into the month for pace to mean something)
+            import calendar
+            days_in_month = calendar.monthrange(today.year, today.month)[1]
+            projected = float(spent) * days_in_month / max(today.day, 1)
+
             if pct >= 100:
                 alert_type = "budget_exceeded"
                 message = (
@@ -79,6 +85,12 @@ def run_check_budget_alerts() -> None:
                 message = (
                     f"Budget for {b.category} at {pct:.0f}%: ${float(spent):,.2f} of "
                     f"${float(limit):,.2f} this month."
+                )
+            elif today.day >= 10 and projected > float(limit):
+                alert_type = "budget_projected"
+                message = (
+                    f"{b.category} is pacing to ${projected:,.2f} this month — "
+                    f"over the ${float(limit):,.2f} budget (${float(spent):,.2f} spent so far)."
                 )
             else:
                 continue
