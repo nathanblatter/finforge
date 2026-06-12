@@ -16,7 +16,7 @@ from statistics import median
 
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Account, CategoryRule, Transaction
+from models.db_models import Account, CategoryRule, SpendingAnomaly, Transaction
 from schemas.schemas import (
     CardSpend,
     CategoryRuleCreate,
@@ -350,3 +350,169 @@ def get_subscriptions(
     items.sort(key=lambda s: s.monthly_amount, reverse=True)
     monthly_total = sum((s.monthly_amount for s in items), Decimal("0"))
     return SubscriptionsResponse(subscriptions=items, monthly_total=monthly_total)
+
+
+# ---------------------------------------------------------------------------
+# Category forecast — Holt's linear exponential smoothing per category
+# ---------------------------------------------------------------------------
+
+def _holt_forecast(series: list[float], alpha: float = 0.5, beta: float = 0.3) -> tuple[float, float]:
+    """One-step-ahead Holt forecast. Returns (forecast, residual_std)."""
+    level = series[0]
+    trend = series[1] - series[0] if len(series) > 1 else 0.0
+    residuals = []
+    for y in series[1:]:
+        pred = level + trend
+        residuals.append(y - pred)
+        new_level = alpha * y + (1 - alpha) * (level + trend)
+        trend = beta * (new_level - level) + (1 - beta) * trend
+        level = new_level
+    forecast = max(0.0, level + trend)
+    if len(residuals) >= 2:
+        mean_r = sum(residuals) / len(residuals)
+        var = sum((r - mean_r) ** 2 for r in residuals) / (len(residuals) - 1)
+        std = var ** 0.5
+    else:
+        std = 0.0
+    return forecast, std
+
+
+@router.get("/spending/forecast")
+def get_spending_forecast(
+    months: int = Query(default=12, ge=4, le=24, description="History window (complete months)"),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Next-month spend forecast per category with an 80% confidence band,
+    plus this month's run-rate projection. Excludes Investment Transfer."""
+    today = date.today()
+    first_of_current = today.replace(day=1)
+
+    # Trailing N complete months
+    start_year = first_of_current.year
+    start_month = first_of_current.month - months
+    while start_month <= 0:
+        start_month += 12
+        start_year -= 1
+    history_start = date(start_year, start_month, 1)
+
+    txns = (
+        db.query(Transaction)
+        .filter(
+            Transaction.date >= history_start,
+            Transaction.is_pending.is_(False),
+            Transaction.amount > 0,
+        )
+        .all()
+    )
+
+    # Build per-category monthly totals over the complete-month window
+    month_keys: list[str] = []
+    y, m = history_start.year, history_start.month
+    while (y, m) < (first_of_current.year, first_of_current.month):
+        month_keys.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+
+    by_cat_month: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    mtd: dict[str, float] = defaultdict(float)
+    for t in txns:
+        cat = t.category or "Other"
+        if cat == "Investment Transfer":
+            continue
+        key = f"{t.date.year:04d}-{t.date.month:02d}"
+        if t.date >= first_of_current:
+            mtd[cat] += float(t.amount)
+        elif key in month_keys:
+            by_cat_month[cat][key] += float(t.amount)
+
+    days_in_month = (date(today.year + (today.month == 12), (today.month % 12) + 1, 1) - first_of_current).days
+    pace_factor = days_in_month / max(today.day, 1)
+
+    categories = []
+    for cat, month_map in sorted(by_cat_month.items()):
+        series = [month_map.get(k, 0.0) for k in month_keys]
+        # Skip categories with almost no history
+        if sum(1 for v in series if v > 0) < 3:
+            continue
+        forecast, std = _holt_forecast(series)
+        band = 1.28 * std  # ~80% interval
+        spent = mtd.get(cat, 0.0)
+        categories.append({
+            "category": cat,
+            "forecast": round(forecast, 2),
+            "lo": round(max(0.0, forecast - band), 2),
+            "hi": round(forecast + band, 2),
+            "mtd_spent": round(spent, 2),
+            "mtd_projected": round(spent * pace_factor, 2),
+            "trailing_avg": round(sum(series) / len(series), 2),
+            "history": [
+                {"month": k, "amount": round(v, 2)}
+                for k, v in zip(month_keys, series)
+            ],
+        })
+
+    categories.sort(key=lambda c: c["forecast"], reverse=True)
+    return {
+        "forecast_month": (first_of_current.replace(day=28) + timedelta(days=4)).strftime("%Y-%m"),
+        "current_month": first_of_current.strftime("%Y-%m"),
+        "total_forecast": round(sum(c["forecast"] for c in categories), 2),
+        "categories": categories,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Spending anomalies
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/anomalies")
+def get_spending_anomalies(
+    include_dismissed: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Recently flagged anomalous transactions (outliers and duplicates)."""
+    q = (
+        db.query(SpendingAnomaly, Transaction, Account)
+        .join(Transaction, SpendingAnomaly.transaction_id == Transaction.id)
+        .join(Account, Transaction.account_id == Account.id)
+    )
+    if not include_dismissed:
+        q = q.filter(SpendingAnomaly.is_dismissed.is_(False))
+    rows = q.order_by(SpendingAnomaly.created_at.desc()).limit(limit).all()
+
+    return {
+        "anomalies": [
+            {
+                "id": str(a.id),
+                "transaction_id": str(t.id),
+                "reason": a.reason,
+                "z_score": float(a.z_score) if a.z_score is not None else None,
+                "typical_amount": float(a.typical_amount) if a.typical_amount is not None else None,
+                "detail": a.detail,
+                "is_dismissed": a.is_dismissed,
+                "created_at": a.created_at.isoformat(),
+                "date": t.date.isoformat(),
+                "amount": float(t.amount),
+                "merchant_name": t.merchant_name,
+                "category": t.category,
+                "account_alias": acct.alias,
+            }
+            for a, t, acct in rows
+        ]
+    }
+
+
+@router.post("/spending/anomalies/{anomaly_id}/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+def dismiss_anomaly(
+    anomaly_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> None:
+    row = db.query(SpendingAnomaly).filter_by(id=anomaly_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anomaly not found")
+    row.is_dismissed = True
+    db.commit()
