@@ -170,6 +170,48 @@ def compute_frontier(
     }
 
 
+def compute_whatif(
+    returns: np.ndarray,
+    symbols: list[str],
+    proposed_weights: dict[str, float],
+    current_weights: dict[str, float],
+) -> dict:
+    """Risk/return/Sharpe for an arbitrary long-only weighting of the held
+    symbols, alongside the current portfolio for comparison. Weights are
+    renormalized, so callers can pass raw slider values."""
+    mu = returns.mean(axis=0) * TRADING_DAYS
+    cov = np.cov(returns, rowvar=False) * TRADING_DAYS
+    if len(symbols) == 1:
+        cov = cov.reshape(1, 1)
+
+    def _point(w: np.ndarray) -> dict:
+        ret = float(w @ mu)
+        vol = float(max(np.sqrt(w @ cov @ w), 1e-9))
+        return {
+            "ret": round(ret, 4),
+            "vol": round(vol, 4),
+            "sharpe": round((ret - RISK_FREE_RATE) / vol, 4),
+        }
+
+    w_new = np.array([max(0.0, float(proposed_weights.get(s, 0.0))) for s in symbols])
+    if w_new.sum() <= 0:
+        raise ValueError("Proposed weights must include at least one held symbol")
+    w_new = w_new / w_new.sum()
+
+    w_cur = np.array([current_weights.get(s, 0.0) for s in symbols])
+    if w_cur.sum() > 0:
+        w_cur = w_cur / w_cur.sum()
+
+    return {
+        "symbols": symbols,
+        "whatif": {
+            **_point(w_new),
+            "weights": {s: round(float(w), 4) for s, w in zip(symbols, w_new) if w > 0.0005},
+        },
+        "current": _point(w_cur) if w_cur.sum() > 0 else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Correlation clustering
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useRecategorize, useCreateCategoryRule } from '../../hooks/useSpending'
 import { useToast } from '../Toast'
@@ -132,7 +133,16 @@ export default function TransactionFeed({ transactions }: Props) {
                   </td>
                   <td className="py-2.5 pr-4 text-slate-200">
                     <div className="flex items-center gap-2">
-                      {t.merchant_name ?? <span className="text-slate-500 italic">Unknown</span>}
+                      {t.merchant_name ? (
+                        <Link
+                          to={`/merchant?name=${encodeURIComponent(t.merchant_name)}`}
+                          className="hover:text-sky-400 transition-colors"
+                        >
+                          {t.merchant_name}
+                        </Link>
+                      ) : (
+                        <span className="text-slate-500 italic">Unknown</span>
+                      )}
                       {t.is_pending && (
                         <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">
                           Pending

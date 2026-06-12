@@ -22,6 +22,7 @@ const ReportsPage            = lazy(() => import('./pages/ReportsPage'))
 const BudgetsPage            = lazy(() => import('./pages/BudgetsPage'))
 const SubscriptionsPage      = lazy(() => import('./pages/SubscriptionsPage'))
 const InsightsPage           = lazy(() => import('./pages/InsightsPage'))
+const MerchantPage           = lazy(() => import('./pages/MerchantPage'))
 
 function PageLoader() {
   return (
@@ -68,6 +69,9 @@ function AuthenticatedRoutes() {
         } />
         <Route path="insights" element={
           <Suspense fallback={<PageLoader />}><InsightsPage /></Suspense>
+        } />
+        <Route path="merchant" element={
+          <Suspense fallback={<PageLoader />}><MerchantPage /></Suspense>
         } />
         <Route path="reports" element={
           <Suspense fallback={<PageLoader />}><ReportsPage /></Suspense>

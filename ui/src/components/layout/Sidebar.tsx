@@ -181,10 +181,22 @@ export default function Sidebar() {
 
   return (
     <aside className="w-[220px] flex-shrink-0 flex flex-col bg-slate-900 border-r border-slate-700 py-6 px-4">
-      <div className="mb-8 px-2 flex items-center gap-2.5">
+      <div className="mb-6 px-2 flex items-center gap-2.5">
         <img src="/finforge_minimal.png" alt="FinForge" className="w-8 h-8 rounded-md" />
         <span className="text-xl font-bold text-sky-400 tracking-tight">FinForge</span>
       </div>
+      <button
+        onClick={() => window.dispatchEvent(new CustomEvent('finforge:palette'))}
+        className="flex items-center gap-3 px-3 py-2 mb-4 rounded-lg text-sm bg-slate-800/80 border border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600 transition-colors"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <span className="flex-1 text-left">Search</span>
+        <kbd className="text-[10px] border border-slate-600 rounded px-1.5 py-0.5">⌘K</kbd>
+      </button>
       <nav className="flex flex-col gap-1">
         {staticNavItems.map((item) => (
           <NavLink
