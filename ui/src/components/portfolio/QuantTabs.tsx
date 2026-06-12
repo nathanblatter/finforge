@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../api/client'
 import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
   ComposedChart, Area, Line, ResponsiveContainer, Legend,
@@ -228,6 +230,8 @@ export function VolatilityTab() {
           </p>
         )}
       </Panel>
+
+      <CoveredCallsPanel />
     </div>
   )
 }
@@ -352,6 +356,211 @@ export function ProjectionsTab() {
               {result.n_sims.toLocaleString()} simulations. Bands show the spread of outcomes; this is a projection from
               one year of return history, not a guarantee.
             </p>
+          </>
+        )}
+      </Panel>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Covered calls
+// ---------------------------------------------------------------------------
+
+function useCoveredCalls() {
+  return useQuery({
+    queryKey: ['quant', 'covered-calls'],
+    queryFn: api.getCoveredCalls,
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+export function CoveredCallsPanel() {
+  const { data, isLoading } = useCoveredCalls()
+
+  if (isLoading) return <Skeleton className="h-48" />
+  if (!data) return null
+  const sellable = data.results.filter((r) => r.call && r.contracts_available > 0)
+  const totalAnnual = sellable.reduce((s, r) => s + (r.est_annual_income ?? 0), 0)
+
+  return (
+    <Panel
+      title="Covered Call Income"
+      sub={`~30-delta calls, 20–45 days out, on positions where you own ≥100 shares. Premiums are mid-market — actual fills vary.${sellable.length > 0 ? ` Estimated total: ${formatCurrency(totalAnnual)}/yr if rolled continuously.` : ''}`}
+    >
+      {data.results.length === 0 ? (
+        <p className="text-sm text-slate-500">No holdings to screen.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700">
+                <th className="pb-2 pr-4">Symbol</th>
+                <th className="pb-2 pr-4 text-right">Shares</th>
+                <th className="pb-2 pr-4 text-right">Strike</th>
+                <th className="pb-2 pr-4 text-right">DTE</th>
+                <th className="pb-2 pr-4 text-right">Delta</th>
+                <th className="pb-2 pr-4 text-right">Premium</th>
+                <th className="pb-2 pr-4 text-right">Ann. Yield</th>
+                <th className="pb-2 text-right">Est. Income/yr</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700/50">
+              {data.results.map((r) => (
+                <tr key={r.symbol} className="hover:bg-slate-700/30 transition-colors">
+                  <td className="py-2.5 pr-4 font-medium text-slate-100">{r.symbol}</td>
+                  <td className="py-2.5 pr-4 text-right text-slate-400 tabular-nums">{r.shares.toFixed(0)}</td>
+                  {r.call ? (
+                    <>
+                      <td className="py-2.5 pr-4 text-right text-slate-300">${r.call.strike}</td>
+                      <td className="py-2.5 pr-4 text-right text-slate-400">{r.call.expiration_days}d</td>
+                      <td className="py-2.5 pr-4 text-right text-slate-400">{r.call.delta.toFixed(2)}</td>
+                      <td className="py-2.5 pr-4 text-right text-slate-300">{formatCurrency(r.call.premium)}</td>
+                      <td className="py-2.5 pr-4 text-right text-emerald-400">{r.call.annualized_yield_pct.toFixed(1)}%</td>
+                      <td className="py-2.5 text-right">
+                        {r.est_annual_income != null ? (
+                          <span className="text-emerald-400 font-medium">{formatCurrency(r.est_annual_income)}</span>
+                        ) : (
+                          <span className="text-slate-600 text-xs">&lt;100 shares</span>
+                        )}
+                      </td>
+                    </>
+                  ) : (
+                    <td colSpan={6} className="py-2.5 text-right text-slate-600 text-xs">no options chain</td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Performance: benchmark + sector exposure
+// ---------------------------------------------------------------------------
+
+function useBenchmark() {
+  return useQuery({
+    queryKey: ['quant', 'benchmark'],
+    queryFn: () => api.getBenchmark(),
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+function useSectors() {
+  return useQuery({
+    queryKey: ['quant', 'sectors'],
+    queryFn: api.getSectors,
+    staleTime: 60 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+const SECTOR_BAR_COLORS = ['#38bdf8', '#34d399', '#a78bfa', '#f59e0b', '#fb7185', '#22d3ee', '#facc15', '#4ade80', '#f472b6', '#94a3b8', '#64748b', '#e2e8f0']
+
+export function PerformanceTab() {
+  const { data: bench, isLoading: benchLoading, error: benchError } = useBenchmark()
+  const { data: sectors, isLoading: sectorsLoading } = useSectors()
+
+  return (
+    <div className="space-y-6">
+      <Panel
+        title="Portfolio vs SPY"
+        sub="Time-weighted return from daily holdings snapshots — contributions don't inflate the line. Flows approximated from cost-basis changes."
+      >
+        {benchLoading ? (
+          <Skeleton className="h-72" />
+        ) : benchError || !bench ? (
+          <p className="text-sm text-slate-500 py-6 text-center">
+            {(benchError as any)?.message?.includes('400')
+              ? 'Not enough daily snapshots yet — the comparison builds as Schwab sync runs each night.'
+              : "Couldn't load benchmark data."}
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+                <div className="text-[11px] text-slate-500 uppercase tracking-wider">Your Return</div>
+                <div className={`text-lg font-bold ${bench.portfolio_return_pct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {bench.portfolio_return_pct >= 0 ? '+' : ''}{bench.portfolio_return_pct.toFixed(1)}%
+                </div>
+              </div>
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+                <div className="text-[11px] text-slate-500 uppercase tracking-wider">SPY</div>
+                <div className={`text-lg font-bold ${bench.spy_return_pct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {bench.spy_return_pct >= 0 ? '+' : ''}{bench.spy_return_pct.toFixed(1)}%
+                </div>
+              </div>
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3">
+                <div className="text-[11px] text-slate-500 uppercase tracking-wider">Excess</div>
+                <div className={`text-lg font-bold ${bench.excess_return_pct >= 0 ? 'text-sky-400' : 'text-amber-400'}`}>
+                  {bench.excess_return_pct >= 0 ? '+' : ''}{bench.excess_return_pct.toFixed(1)}%
+                </div>
+              </div>
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={bench.series} margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
+                  <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
+                  <XAxis dataKey="date" stroke="#64748b" fontSize={10} minTickGap={40}
+                    tickFormatter={(d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} />
+                  <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']}
+                    tickFormatter={(v: number) => `${(v - 100).toFixed(0)}%`} />
+                  <Tooltip
+                    contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number, name: string) => [`${(v - 100).toFixed(2)}%`, name === 'portfolio' ? 'Portfolio' : 'SPY']}
+                  />
+                  <Line dataKey="portfolio" name="portfolio" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                  <Line dataKey="spy" name="spy" stroke="#64748b" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v: string) => v === 'portfolio' ? 'Portfolio' : 'SPY'} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-2">{bench.n_snapshots} snapshots, {bench.start} → {bench.end}.</p>
+          </>
+        )}
+      </Panel>
+
+      <Panel
+        title="Sector Exposure (Look-Through)"
+        sub="ETF holdings decomposed into approximate sector weights from a static composition table — indicative, not exact."
+      >
+        {sectorsLoading ? (
+          <Skeleton className="h-48" />
+        ) : !sectors ? (
+          <p className="text-sm text-slate-500">Couldn't load sector data.</p>
+        ) : (
+          <>
+            <div className="flex h-5 rounded-full overflow-hidden mb-4">
+              {sectors.sectors.map((s, i) => (
+                <div
+                  key={s.sector}
+                  title={`${s.sector}: ${s.pct.toFixed(1)}%`}
+                  style={{ width: `${s.pct}%`, background: SECTOR_BAR_COLORS[i % SECTOR_BAR_COLORS.length] }}
+                />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5">
+              {sectors.sectors.map((s, i) => (
+                <div key={s.sector} className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-slate-300">
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: SECTOR_BAR_COLORS[i % SECTOR_BAR_COLORS.length] }} />
+                    {s.sector}
+                  </span>
+                  <span className="text-slate-400 tabular-nums">{s.pct.toFixed(1)}% · {formatCurrency(s.value)}</span>
+                </div>
+              ))}
+            </div>
+            {sectors.unclassified_pct > 10 && (
+              <p className="text-xs text-amber-400/80 mt-3">
+                {sectors.unclassified_pct.toFixed(0)}% of the portfolio isn't in the classification table — treat the rest as a partial picture.
+              </p>
+            )}
           </>
         )}
       </Panel>
