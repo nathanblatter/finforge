@@ -8,16 +8,26 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+from collections import defaultdict
+from statistics import median
 
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Account, Transaction
+from models.db_models import Account, CategoryRule, Transaction
 from schemas.schemas import (
     CardSpend,
+    CategoryRuleCreate,
+    CategoryRuleItem,
+    CategoryRulesResponse,
     CategorySpend,
     FixedExpenses,
     MonthlySpendingResponse,
+    SubscriptionItem,
+    SubscriptionsResponse,
+    TransactionCategoryUpdate,
     TransactionResponse,
 )
 
@@ -188,8 +198,155 @@ def get_transactions(
             subcategory=t.subcategory,
             is_pending=t.is_pending,
             is_fixed_expense=t.is_fixed_expense,
+            category_overridden=t.category_overridden,
             account_alias=a.alias,
             notes=t.notes,
         )
         for t, a in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Recategorization + rules
+# ---------------------------------------------------------------------------
+
+@router.patch("/spending/transactions/{txn_id}", response_model=TransactionResponse)
+def update_transaction_category(
+    txn_id: uuid.UUID,
+    body: TransactionCategoryUpdate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> TransactionResponse:
+    """Manually set a transaction's category. Marks it as overridden so the
+    Plaid sync won't clobber it."""
+    category = body.category.strip()
+    if not category:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Category is required")
+
+    row = db.query(Transaction, Account).join(Account, Transaction.account_id == Account.id).filter(Transaction.id == txn_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    t, a = row
+    t.category = category
+    t.category_overridden = True
+    db.commit()
+    db.refresh(t)
+    return TransactionResponse(
+        id=t.id, date=t.date, amount=Decimal(str(t.amount)), merchant_name=t.merchant_name,
+        category=t.category, subcategory=t.subcategory, is_pending=t.is_pending,
+        is_fixed_expense=t.is_fixed_expense, category_overridden=t.category_overridden,
+        account_alias=a.alias, notes=t.notes,
+    )
+
+
+@router.get("/spending/rules", response_model=CategoryRulesResponse)
+def list_rules(
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> CategoryRulesResponse:
+    rules = db.query(CategoryRule).order_by(CategoryRule.merchant).all()
+    return CategoryRulesResponse(rules=[CategoryRuleItem.model_validate(r) for r in rules])
+
+
+@router.post("/spending/rules", response_model=CategoryRuleItem, status_code=status.HTTP_201_CREATED)
+def create_rule(
+    body: CategoryRuleCreate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> CategoryRuleItem:
+    """Create or update a merchant→category rule and apply it to all existing
+    transactions from that merchant (case-insensitive)."""
+    merchant = body.merchant.strip()
+    category = body.category.strip()
+    if not merchant or not category:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Merchant and category are required")
+
+    rule = db.query(CategoryRule).filter(func.lower(CategoryRule.merchant) == merchant.lower()).first()
+    if rule is None:
+        rule = CategoryRule(merchant=merchant, category=category)
+        db.add(rule)
+    else:
+        rule.category = category
+
+    # Apply to existing transactions from this merchant.
+    db.query(Transaction).filter(func.lower(Transaction.merchant_name) == merchant.lower()).update(
+        {Transaction.category: category, Transaction.category_overridden: True},
+        synchronize_session=False,
+    )
+    db.commit()
+    db.refresh(rule)
+    return CategoryRuleItem.model_validate(rule)
+
+
+@router.delete("/spending/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_rule(
+    rule_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> None:
+    rule = db.query(CategoryRule).filter_by(id=rule_id).first()
+    if rule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+    db.delete(rule)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions / recurring-charge detection
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/subscriptions", response_model=SubscriptionsResponse)
+def get_subscriptions(
+    months: int = Query(default=6, ge=2, le=24, description="Lookback window in months"),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> SubscriptionsResponse:
+    """Heuristically detect recurring merchants: a charge that appears in at
+    least 3 distinct months with reasonably consistent amounts."""
+    since = date.today() - timedelta(days=months * 31)
+    txns = (
+        db.query(Transaction)
+        .filter(
+            Transaction.date >= since,
+            Transaction.is_pending.is_(False),
+            Transaction.merchant_name.isnot(None),
+            Transaction.amount > 0,  # debits only
+        )
+        .all()
+    )
+
+    groups: dict[str, list[Transaction]] = defaultdict(list)
+    for t in txns:
+        groups[t.merchant_name.strip()].append(t)
+
+    items: list[SubscriptionItem] = []
+    for merchant, ts in groups.items():
+        amounts = [float(t.amount) for t in ts]
+        distinct_months = {(t.date.year, t.date.month) for t in ts}
+        if len(distinct_months) < 3:
+            continue
+        avg = sum(amounts) / len(amounts)
+        if avg <= 0:
+            continue
+        # Consistency check: ignore merchants with wildly varying charges.
+        spread = (max(amounts) - min(amounts)) / avg
+        if spread > 0.5:
+            continue
+        med = median(amounts)
+        last = max(t.date for t in ts)
+        # Most common category for the group
+        cats = [t.category for t in ts if t.category]
+        category = max(set(cats), key=cats.count) if cats else None
+        items.append(SubscriptionItem(
+            merchant=merchant,
+            category=category,
+            monthly_amount=Decimal(str(round(med, 2))),
+            avg_amount=Decimal(str(round(avg, 2))),
+            occurrences=len(ts),
+            months_seen=len(distinct_months),
+            last_date=last,
+        ))
+
+    items.sort(key=lambda s: s.monthly_amount, reverse=True)
+    monthly_total = sum((s.monthly_amount for s in items), Decimal("0"))
+    return SubscriptionsResponse(subscriptions=items, monthly_total=monthly_total)

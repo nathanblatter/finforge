@@ -186,6 +186,8 @@ class Transaction(Base):
     subcategory: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_fixed_expense: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # True once a user manually recategorizes; protects category from Plaid sync.
+    category_overridden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -745,3 +747,20 @@ class PriceAlert(Base):
 
     def __repr__(self) -> str:
         return f"<PriceAlert {self.symbol!r} {self.direction!r} {self.threshold!r} active={self.is_active!r}>"
+
+
+class CategoryRule(Base):
+    """A merchant→category rule applied to transactions on sync and creation."""
+
+    __tablename__ = "category_rules"
+    __table_args__ = (
+        UniqueConstraint("merchant", name="uq_category_rule_merchant"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    merchant: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<CategoryRule merchant={self.merchant!r} category={self.category!r}>"

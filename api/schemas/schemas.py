@@ -252,8 +252,50 @@ class TransactionResponse(BaseModel):
     subcategory: Optional[str]
     is_pending: bool
     is_fixed_expense: bool
+    category_overridden: bool = False
     account_alias: str      # never account_id — joined from accounts table
     notes: Optional[str]
+
+
+class TransactionCategoryUpdate(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    category: str
+
+
+class CategoryRuleCreate(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    merchant: str
+    category: str
+
+
+class CategoryRuleItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    merchant: str
+    category: str
+    created_at: datetime
+
+
+class CategoryRulesResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    rules: list[CategoryRuleItem]
+
+
+class SubscriptionItem(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    merchant: str
+    category: Optional[str]
+    monthly_amount: Decimal
+    avg_amount: Decimal
+    occurrences: int
+    months_seen: int
+    last_date: date
+
+
+class SubscriptionsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    subscriptions: list[SubscriptionItem]
+    monthly_total: Decimal
 
 
 # ---------------------------------------------------------------------------

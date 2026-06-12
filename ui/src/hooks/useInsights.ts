@@ -7,3 +7,10 @@ export function useInsights() {
     queryFn: api.getInsights,
   })
 }
+
+export function useInsightsHistory(limit = 50) {
+  return useQuery({
+    queryKey: ['insights', 'history', limit],
+    queryFn: () => api.getInsightsHistory(limit),
+  })
+}

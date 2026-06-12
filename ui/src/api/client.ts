@@ -6,6 +6,9 @@ import type {
   BrokerageResponse,
   IRAResponse,
   InsightsResponse,
+  CategoryRule,
+  CategoryRulesResponse,
+  SubscriptionsResponse,
   GoalsListResponse,
   GoalProgressResponse,
   GoalDetailResponse,
@@ -105,6 +108,39 @@ export const api = {
     const qs = q.toString()
     return apiFetch<TransactionResponse[]>(`/spending/transactions${qs ? `?${qs}` : ''}`)
   },
+
+  updateTransactionCategory: (id: string, category: string) =>
+    apiFetch<TransactionResponse>(`/spending/transactions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ category }),
+    }),
+
+  getCategoryRules: () =>
+    apiFetch<CategoryRulesResponse>('/spending/rules'),
+
+  createCategoryRule: (merchant: string, category: string) =>
+    apiFetch<CategoryRule>('/spending/rules', {
+      method: 'POST',
+      body: JSON.stringify({ merchant, category }),
+    }),
+
+  deleteCategoryRule: (id: string) =>
+    apiFetch<void>(`/spending/rules/${id}`, { method: 'DELETE' }),
+
+  getSubscriptions: async (months = 6): Promise<SubscriptionsResponse> => {
+    const raw = await apiFetch<SubscriptionsResponse>(`/spending/subscriptions?months=${months}`)
+    return {
+      monthly_total: Number(raw.monthly_total),
+      subscriptions: raw.subscriptions.map((s) => ({
+        ...s,
+        monthly_amount: Number(s.monthly_amount),
+        avg_amount: Number(s.avg_amount),
+      })),
+    }
+  },
+
+  getInsightsHistory: (limit = 50) =>
+    apiFetch<InsightsResponse>(`/insights/history?limit=${limit}`),
 
   getBrokerage: () =>
     apiFetch<BrokerageResponse>('/investments/brokerage'),

@@ -77,3 +77,23 @@ def get_latest_insights(
         insights=[InsightResponse.model_validate(r) for r in rows],
         generated_at=now,
     )
+
+
+@router.get("/insights/history", response_model=InsightsResponse)
+def get_insight_history(
+    limit: int = Query(default=50, ge=1, le=200, description="Max insights to return"),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> InsightsResponse:
+    """Recent insights across all types (including expired), newest first."""
+    now = datetime.now(tz=timezone.utc)
+    rows = (
+        db.query(ClaudeInsight)
+        .order_by(ClaudeInsight.insight_date.desc(), ClaudeInsight.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return InsightsResponse(
+        insights=[InsightResponse.model_validate(r) for r in rows],
+        generated_at=now,
+    )
