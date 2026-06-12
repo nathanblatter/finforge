@@ -1150,26 +1150,24 @@ def get_wrapped(
     """FinForge Wrapped: stats + a Claude-written year in review.
     Narratives are cached in claude_insights (one per year)."""
     import json as _json
+    from pathlib import Path
 
     from config import settings
-    from models.db_models import ClaudeInsight
 
     today = date.today()
     if year is None:
         year = today.year - 1 if today.month <= 2 else today.year
 
-    insight_type = f"wrapped_{year}"
-    if not regenerate:
-        cached = (
-            db.query(ClaudeInsight)
-            .filter(ClaudeInsight.insight_type == insight_type)
-            .order_by(ClaudeInsight.created_at.desc())
-            .first()
-        )
-        if cached:
-            payload = _json.loads(cached.content)
+    # Cached on disk — insight_type in claude_insights is a fixed enum,
+    # so Wrapped narratives live alongside the ML models instead.
+    cache_path = Path(f"/secrets/wrapped_{year}.json")
+    if not regenerate and cache_path.exists():
+        try:
+            payload = _json.loads(cache_path.read_text())
             payload["cached"] = True
             return payload
+        except Exception:
+            logger.warning("Corrupt wrapped cache at %s — regenerating", cache_path)
 
     stats = _wrapped_stats(db, year)
     if stats["transaction_count"] == 0:
@@ -1205,15 +1203,11 @@ def get_wrapped(
 
     # Cache only complete years with a narrative — partial years change daily
     if narrative and not partial:
-        from datetime import datetime, timezone
-
-        db.query(ClaudeInsight).filter(ClaudeInsight.insight_type == insight_type).delete()
-        db.add(ClaudeInsight(
-            insight_date=today,
-            insight_type=insight_type,
-            content=_json.dumps({"stats": stats, "narrative": narrative, "partial_year": False}),
-            expires_at=datetime(year + 10, 1, 1, tzinfo=timezone.utc),
-        ))
-        db.commit()
+        try:
+            cache_path.write_text(_json.dumps(
+                {"stats": stats, "narrative": narrative, "partial_year": False}
+            ))
+        except Exception as exc:
+            logger.warning("Could not write wrapped cache: %s", exc)
 
     return payload
