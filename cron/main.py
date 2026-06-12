@@ -136,6 +136,15 @@ def weekly_digest() -> None:
         logger.error("weekly_digest failed:\n%s", traceback.format_exc())
 
 
+def deliver_imessages() -> None:
+    """Flush the NateBot queue to the imessage-api gateway as real iMessages."""
+    try:
+        from imessage_delivery import deliver_pending_notifications
+        deliver_pending_notifications()
+    except Exception:
+        logger.error("deliver_imessages failed:\n%s", traceback.format_exc())
+
+
 def drawdown_model_train() -> None:
     """Train/retrain the drawdown prediction model."""
     logger.info("Running drawdown_model_train...")
@@ -334,6 +343,14 @@ def build_scheduler() -> BlockingScheduler:
         trigger=IntervalTrigger(minutes=15, timezone=TIMEZONE),
         id="check_price_alerts",
         name="Check Price Alerts",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        deliver_imessages,
+        trigger=IntervalTrigger(minutes=1, timezone=TIMEZONE),
+        id="deliver_imessages",
+        name="Deliver iMessages",
         max_instances=1,
         coalesce=True,
     )
