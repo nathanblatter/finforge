@@ -53,8 +53,35 @@ export interface TransactionResponse {
   subcategory: string | null
   is_pending: boolean
   is_fixed_expense: boolean
+  category_overridden: boolean
   account_alias: string
   notes: string | null
+}
+
+export interface CategoryRule {
+  id: string
+  merchant: string
+  category: string
+  created_at: string
+}
+
+export interface CategoryRulesResponse {
+  rules: CategoryRule[]
+}
+
+export interface SubscriptionItem {
+  merchant: string
+  category: string | null
+  monthly_amount: number
+  avg_amount: number
+  occurrences: number
+  months_seen: number
+  last_date: string
+}
+
+export interface SubscriptionsResponse {
+  subscriptions: SubscriptionItem[]
+  monthly_total: number
 }
 
 export interface HoldingDetail {

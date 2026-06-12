@@ -38,7 +38,7 @@ from etl.deidentify import deidentify_plaid_transaction, deidentify_plaid_balanc
 from integrations.plaid_client import get_plaid_client
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy import text
+from sqlalchemy import case, func, text
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +221,38 @@ def run_plaid_sync() -> None:
             except Exception as exc:
                 logger.error("[plaid_sync] Balance snapshot failed for %r: %s", alias, exc)
 
+    try:
+        apply_category_rules()
+    except Exception as exc:
+        logger.error("[plaid_sync] Category rule application failed: %s", exc)
+
     logger.info("[plaid_sync] Sync complete for %d accounts", len(aliases))
+
+
+def apply_category_rules() -> None:
+    """Apply every merchant→category rule to matching transactions, marking
+    them overridden so future syncs won't change them back."""
+    from db import CategoryRuleRow, TransactionRow
+
+    with get_session() as session:
+        rules = session.query(CategoryRuleRow).all()
+        if not rules:
+            return
+        updated = 0
+        for rule in rules:
+            n = (
+                session.query(TransactionRow)
+                .filter(
+                    func.lower(TransactionRow.merchant_name) == rule.merchant.lower(),
+                    TransactionRow.category != rule.category,
+                )
+                .update(
+                    {TransactionRow.category: rule.category, TransactionRow.category_overridden: True},
+                    synchronize_session=False,
+                )
+            )
+            updated += n
+        logger.info("[plaid_sync] Applied %d category rule(s), updated %d transaction(s)", len(rules), updated)
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +354,11 @@ def sync_transactions(
                             "account_id": stmt.excluded.account_id,
                             "amount": stmt.excluded.amount,
                             "merchant_name": stmt.excluded.merchant_name,
-                            "category": stmt.excluded.category,
+                            # Preserve a manually-overridden category; otherwise take Plaid's.
+                            "category": case(
+                                (TransactionRow.category_overridden.is_(True), TransactionRow.category),
+                                else_=stmt.excluded.category,
+                            ),
                             "subcategory": stmt.excluded.subcategory,
                             "is_pending": stmt.excluded.is_pending,
                             "is_fixed_expense": stmt.excluded.is_fixed_expense,

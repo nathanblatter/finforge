@@ -56,6 +56,27 @@ function WalletIcon() {
   )
 }
 
+function RepeatIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m17 2 4 4-4 4" />
+      <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+      <path d="m7 22-4-4 4-4" />
+      <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+    </svg>
+  )
+}
+
+function SparkleIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v3m0 12v3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M3 12h3m12 0h3M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1" />
+    </svg>
+  )
+}
+
 function ReceiptIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
@@ -124,6 +145,7 @@ const staticNavItems = [
   { label: 'Dashboard',   to: '/',            icon: <GridIcon /> },
   { label: 'Spending',    to: '/spending',    icon: <CreditCardIcon /> },
   { label: 'Budgets',     to: '/budgets',     icon: <WalletIcon /> },
+  { label: 'Subscriptions', to: '/subscriptions', icon: <RepeatIcon /> },
   { label: 'Reimburse',   to: '/reimbursement', icon: <ReceiptIcon /> },
   { label: 'Reports',     to: '/reports',       icon: <FileTextIcon /> },
   { label: 'Investments', to: '/investments', icon: <TrendingUpIcon /> },
@@ -131,6 +153,7 @@ const staticNavItems = [
   { label: 'Watchlists',  to: '/watchlists',  icon: <EyeIcon /> },
   { label: 'Goals',       to: '/goals',       icon: <FlagIcon /> },
   { label: 'Chat',        to: '/chat',        icon: <ChatIcon /> },
+  { label: 'Insights',    to: '/insights',    icon: <SparkleIcon /> },
 ]
 
 function LogoutButton() {

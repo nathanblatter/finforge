@@ -96,6 +96,7 @@ class TransactionRow(Base):
     subcategory: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_fixed_expense: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    category_overridden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -370,6 +371,19 @@ class PriceAlertRow(Base):
     threshold: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class CategoryRuleRow(Base):
+    __tablename__ = "category_rules"
+    __table_args__ = (
+        UniqueConstraint("merchant", name="uq_category_rule_merchant"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    merchant: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
