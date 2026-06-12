@@ -4,6 +4,31 @@ import Header from '../components/layout/Header'
 import { useToast } from '../components/Toast'
 import { usePortfolioAnalysis, usePortfolioTargets, useSetPortfolioTargets, useDrawdownPredictions, usePredictDrawdown, useDrawdownFavorites, useAddDrawdownFavorite, useRemoveDrawdownFavorite } from '../hooks/usePortfolioAnalysis'
 import { useWatchlists, useAddSymbol } from '../hooks/useMarketData'
+import { FrontierTab, VolatilityTab, ProjectionsTab } from '../components/portfolio/QuantTabs'
+import { useRegime } from '../hooks/useQuant'
+
+const REGIME_BADGES: Record<string, { label: string; cls: string }> = {
+  bull_quiet: { label: 'Bull · Low Vol', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  bull_volatile: { label: 'Bull · High Vol', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  bear_quiet: { label: 'Bear · Low Vol', cls: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
+  bear_volatile: { label: 'Bear · High Vol', cls: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
+  choppy: { label: 'Choppy', cls: 'bg-slate-700 text-slate-400 border-slate-600' },
+}
+
+function RegimeBadge() {
+  const { data } = useRegime()
+  const current = data?.current
+  if (!current) return null
+  const badge = REGIME_BADGES[current.regime] ?? { label: current.regime, cls: 'bg-slate-700 text-slate-400 border-slate-600' }
+  return (
+    <span
+      title={`SPY 20d vol ${current.realized_vol_20d != null ? (current.realized_vol_20d * 100).toFixed(0) : '?'}%, 60d return ${current.trend_60d != null ? (current.trend_60d * 100).toFixed(1) : '?'}% (as of ${current.date})`}
+      className={`text-xs font-medium px-2.5 py-1 rounded-full border ${badge.cls}`}
+    >
+      {badge.label}
+    </span>
+  )
+}
 import { formatCurrency, formatPct } from '../utils/format'
 import type { PortfolioTargetItem } from '../types'
 
@@ -79,13 +104,16 @@ function AddToWatchlistButton({ symbol }: { symbol: string }) {
   )
 }
 
-type Tab = 'risk' | 'rebalance' | 'tlh' | 'drawdown'
+type Tab = 'risk' | 'rebalance' | 'tlh' | 'drawdown' | 'frontier' | 'volatility' | 'projections'
 
 const TABS: { label: string; value: Tab }[] = [
   { label: 'Risk & Allocation', value: 'risk' },
   { label: 'Rebalancing', value: 'rebalance' },
   { label: 'Tax-Loss Harvesting', value: 'tlh' },
   { label: 'Drawdown Risk', value: 'drawdown' },
+  { label: 'Frontier', value: 'frontier' },
+  { label: 'Volatility', value: 'volatility' },
+  { label: 'Projections', value: 'projections' },
 ]
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -180,7 +208,10 @@ export default function PortfolioAnalysisPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <Header title="Portfolio Analysis" />
+        <div className="flex items-center gap-3">
+          <Header title="Portfolio Analysis" />
+          <RegimeBadge />
+        </div>
         <div className="flex gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1">
           {TABS.map((t) => (
             <button
@@ -197,7 +228,13 @@ export default function PortfolioAnalysisPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {tab === 'frontier' ? (
+        <FrontierTab />
+      ) : tab === 'volatility' ? (
+        <VolatilityTab />
+      ) : tab === 'projections' ? (
+        <ProjectionsTab />
+      ) : isLoading ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24" />)}

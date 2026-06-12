@@ -429,3 +429,134 @@ export interface OptionContract {
   daysToExpiration: number
   inTheMoney: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Quant analytics
+// ---------------------------------------------------------------------------
+
+export interface FrontierPoint {
+  vol: number
+  ret: number
+  sharpe: number
+}
+
+export interface FrontierPortfolio extends FrontierPoint {
+  weights: Record<string, number>
+}
+
+export interface FrontierResponse {
+  symbols: string[]
+  cloud: FrontierPoint[]
+  max_sharpe: FrontierPortfolio
+  min_variance: FrontierPortfolio
+  current: FrontierPoint | null
+  risk_free_rate: number
+  per_symbol: { symbol: string; exp_return: number; volatility: number; current_weight: number }[]
+  lookback_days: number
+}
+
+export interface CorrelationCluster {
+  symbols: string[]
+  weight_pct: number
+  avg_internal_correlation: number
+}
+
+export interface ClustersResponse {
+  n_positions: number
+  n_clusters: number
+  corr_threshold: number
+  clusters: CorrelationCluster[]
+  correlation_matrix: { symbols: string[]; values: number[][] }
+}
+
+export interface IvHvItem {
+  symbol: string
+  hv_30d: number | null
+  iv_30d: number | null
+  iv_hv_ratio: number | null
+  signal: 'RICH' | 'CHEAP' | 'FAIR' | 'UNKNOWN'
+}
+
+export interface IvHvResponse {
+  results: IvHvItem[]
+}
+
+export interface MonteCarloRequest {
+  initial_value?: number
+  monthly_contribution: number
+  years: number
+  target_value?: number
+  n_sims?: number
+}
+
+export interface MonteCarloYear {
+  year: number
+  p10: number
+  p25: number
+  p50: number
+  p75: number
+  p90: number
+}
+
+export interface MonteCarloResponse {
+  initial_value: number
+  monthly_contribution: number
+  years: number
+  n_sims: number
+  yearly: MonteCarloYear[]
+  final_median: number | null
+  target_value?: number
+  prob_hit_at_horizon?: number
+  prob_hit_ever?: number
+}
+
+export interface ForecastCategory {
+  category: string
+  forecast: number
+  lo: number
+  hi: number
+  mtd_spent: number
+  mtd_projected: number
+  trailing_avg: number
+  history: { month: string; amount: number }[]
+}
+
+export interface SpendingForecastResponse {
+  forecast_month: string
+  current_month: string
+  total_forecast: number
+  categories: ForecastCategory[]
+}
+
+export interface SpendingAnomalyItem {
+  id: string
+  transaction_id: string
+  reason: 'outlier' | 'duplicate'
+  z_score: number | null
+  typical_amount: number | null
+  detail: string | null
+  is_dismissed: boolean
+  created_at: string
+  date: string
+  amount: number
+  merchant_name: string | null
+  category: string | null
+  account_alias: string
+}
+
+export interface SpendingAnomaliesResponse {
+  anomalies: SpendingAnomalyItem[]
+}
+
+export interface RegimeSnapshot {
+  date: string
+  regime: 'bull_quiet' | 'bull_volatile' | 'bear_quiet' | 'bear_volatile' | 'choppy'
+  realized_vol_20d: number | null
+  trend_60d: number | null
+  sma20_vs_sma50: number | null
+}
+
+export interface RegimeResponse {
+  current: RegimeSnapshot | null
+  history: RegimeSnapshot[]
+}

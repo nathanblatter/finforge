@@ -14,6 +14,7 @@ from routers import (
     alerts_router,
     budgets_router,
     price_alerts_router,
+    quant_router,
     auth_router,
     balances_router,
     chat_router,
@@ -107,6 +108,7 @@ app.include_router(goals_router,       prefix=_PREFIX)
 app.include_router(alerts_router,      prefix=_PREFIX)
 app.include_router(budgets_router,     prefix=_PREFIX)
 app.include_router(price_alerts_router, prefix=_PREFIX)
+app.include_router(quant_router,       prefix=_PREFIX)
 app.include_router(investments_router, prefix=_PREFIX)
 app.include_router(insights_router,    prefix=_PREFIX)
 app.include_router(chat_router,        prefix=_PREFIX)
