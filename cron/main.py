@@ -125,6 +125,41 @@ def check_price_alerts() -> None:
         logger.error("check_price_alerts failed:\n%s", traceback.format_exc())
 
 
+def check_subscription_hikes() -> None:
+    """Detect recurring-charge price increases and notify."""
+    logger.info("Running check_subscription_hikes...")
+    try:
+        from alerts_engine import run_check_subscription_hikes
+        run_check_subscription_hikes()
+        logger.info("check_subscription_hikes completed successfully.")
+    except Exception:
+        logger.error("check_subscription_hikes failed:\n%s", traceback.format_exc())
+
+
+def annual_wrapped() -> None:
+    """Generate last year's FinForge Wrapped via the API and text the narrative."""
+    logger.info("Running annual_wrapped...")
+    try:
+        import httpx
+        from datetime import date as _date
+
+        api_key = os.environ.get("API_KEY", "")
+        year = _date.today().year - 1
+        r = httpx.get(
+            f"http://finforge-api:8000/api/v1/reports/wrapped?year={year}",
+            headers={"X-API-Key": api_key},
+            timeout=120,
+        )
+        r.raise_for_status()
+        narrative = r.json().get("narrative")
+        if narrative:
+            from notify import queue_notification
+            queue_notification("wrapped", f"🎁 FinForge Wrapped {year}\n\n{narrative}", priority="normal")
+        logger.info("annual_wrapped completed successfully.")
+    except Exception:
+        logger.error("annual_wrapped failed:\n%s", traceback.format_exc())
+
+
 def market_regime() -> None:
     """Classify the current market regime from SPY price action."""
     logger.info("Running market_regime...")
@@ -373,6 +408,22 @@ def build_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        check_subscription_hikes,
+        trigger=CronTrigger(hour=2, minute=55, timezone=TIMEZONE),
+        id="check_subscription_hikes",
+        name="Subscription Price-Hike Check",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        annual_wrapped,
+        trigger=CronTrigger(month=1, day=5, hour=9, minute=0, timezone=TIMEZONE),
+        id="annual_wrapped",
+        name="Annual FinForge Wrapped",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         spending_anomalies,
         trigger=CronTrigger(hour=2, minute=50, timezone=TIMEZONE),
         id="spending_anomalies",
@@ -470,6 +521,7 @@ ALL_SYNC_JOBS = {
     "category_model_train": category_model_train,
     "market_regime": market_regime,
     "market_intel": market_intel,
+    "check_subscription_hikes": check_subscription_hikes,
     "schwab_token_watchdog": schwab_token_watchdog,
 }
 

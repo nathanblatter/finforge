@@ -40,6 +40,13 @@ import type {
   SpendingForecastResponse,
   SpendingAnomaliesResponse,
   RegimeResponse,
+  CoveredCallsResponse,
+  BenchmarkResponse,
+  SectorsResponse,
+  DailySpendingResponse,
+  MoneyFlowResponse,
+  StreaksResponse,
+  WrappedResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -344,6 +351,32 @@ export const api = {
 
   getRegime: () =>
     apiFetch<RegimeResponse>('/quant/regime'),
+
+  getCoveredCalls: () =>
+    apiFetch<CoveredCallsResponse>('/quant/covered-calls'),
+
+  getBenchmark: (days = 365) =>
+    apiFetch<BenchmarkResponse>(`/quant/benchmark?days=${days}`),
+
+  getSectors: () =>
+    apiFetch<SectorsResponse>('/quant/sectors'),
+
+  getDailySpending: (months = 6) =>
+    apiFetch<DailySpendingResponse>(`/spending/daily?months=${months}`),
+
+  getMoneyFlow: (month?: string) =>
+    apiFetch<MoneyFlowResponse>(`/spending/flow${month ? `?month=${month}` : ''}`),
+
+  getStreaks: () =>
+    apiFetch<StreaksResponse>('/spending/streaks'),
+
+  getWrapped: (year?: number, regenerate = false) => {
+    const q = new URLSearchParams()
+    if (year) q.set('year', String(year))
+    if (regenerate) q.set('regenerate', 'true')
+    const qs = q.toString()
+    return apiFetch<WrappedResponse>(`/reports/wrapped${qs ? `?${qs}` : ''}`)
+  },
 
   // Reports
   getFinancialPreview: (period: string, month: string, startDate?: string, endDate?: string) =>

@@ -16,7 +16,7 @@ from statistics import median
 
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Account, CategoryRule, SpendingAnomaly, Transaction
+from models.db_models import Account, Budget, CategoryRule, SpendingAnomaly, Transaction
 from schemas.schemas import (
     CardSpend,
     CategoryRuleCreate,
@@ -516,3 +516,193 @@ def dismiss_anomaly(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anomaly not found")
     row.is_dismissed = True
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Daily spend heatmap
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/daily")
+def get_daily_spending(
+    months: int = Query(default=6, ge=1, le=24),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Daily discretionary spend totals for the heatmap calendar.
+    Excludes fixed expenses and investment transfers so patterns show
+    lifestyle spending, not rent day."""
+    since = date.today() - timedelta(days=months * 31)
+    rows = (
+        db.query(Transaction.date, func.sum(Transaction.amount), func.count(Transaction.id))
+        .filter(
+            Transaction.date >= since,
+            Transaction.is_pending.is_(False),
+            Transaction.is_fixed_expense.is_(False),
+            Transaction.amount > 0,
+            (Transaction.category.is_(None)) | (Transaction.category != "Investment Transfer"),
+        )
+        .group_by(Transaction.date)
+        .all()
+    )
+    return {
+        "start": since.isoformat(),
+        "days": [
+            {"date": d.isoformat(), "total": round(float(total), 2), "count": int(n)}
+            for d, total, n in sorted(rows)
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Money flow (Sankey)
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/flow")
+def get_money_flow(
+    month: str = Query(default=None, description="YYYY-MM — defaults to current month"),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Income → fixed costs / spending categories / investing for one month,
+    shaped as Sankey nodes and links."""
+    if month is None:
+        month = _current_month()
+    first_day, last_day = _month_bounds(month)
+
+    txns = (
+        db.query(Transaction, Account)
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(
+            Transaction.date >= first_day,
+            Transaction.date <= last_day,
+            Transaction.is_pending.is_(False),
+        )
+        .all()
+    )
+
+    income = 0.0
+    fixed = 0.0
+    investing = 0.0
+    cat_totals: dict[str, float] = {}
+
+    for t, a in txns:
+        amt = float(t.amount)
+        cat = t.category or "Other"
+        if a.account_type == "checking" and amt < 0 and cat != "Investment Transfer":
+            income += -amt  # deposits into checking
+        elif amt > 0 and t.is_fixed_expense:
+            fixed += amt
+        elif amt > 0 and cat == "Investment Transfer" and a.account_type == "checking":
+            investing += amt
+        elif amt > 0 and a.account_type == "credit_card" and cat != "Investment Transfer":
+            cat_totals[cat] = cat_totals.get(cat, 0.0) + amt
+
+    # Top categories, rest folded into "Other"
+    ranked = sorted(cat_totals.items(), key=lambda x: x[1], reverse=True)
+    top_map: dict[str, float] = {}
+    for k, v in ranked[:6]:
+        top_map[k] = top_map.get(k, 0.0) + v
+    leftover_cats = sum(v for _, v in ranked[6:])
+    if leftover_cats > 0:
+        top_map["Other"] = top_map.get("Other", 0.0) + leftover_cats
+
+    outflows = fixed + investing + sum(top_map.values())
+
+    nodes = [{"name": f"Income ({month})" if income > 0 else f"Spending ({month})"}]
+    links = []
+
+    def _add(name: str, value: float) -> None:
+        if value <= 0:
+            return
+        nodes.append({"name": name})
+        links.append({"source": 0, "target": len(nodes) - 1, "value": round(value, 2)})
+
+    _add("Fixed Costs", fixed)
+    _add("Investing", investing)
+    for k, v in sorted(top_map.items(), key=lambda x: x[1], reverse=True):
+        _add(k, v)
+    if income > outflows:
+        _add("Unallocated", income - outflows)
+
+    return {
+        "month": month,
+        "income": round(income, 2),
+        "outflows": round(outflows, 2),
+        "nodes": nodes,
+        "links": links,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Streaks
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/streaks")
+def get_spending_streaks(
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Budget discipline streaks over the last 90 days.
+
+    A day is "under budget" when its discretionary CC spend is at or below
+    the prorated daily budget (sum of monthly budgets / days in that month).
+    """
+    import calendar as _cal
+
+    today = date.today()
+    since = today - timedelta(days=90)
+
+    total_budget = float(
+        db.query(func.coalesce(func.sum(Budget.monthly_limit), 0)).scalar() or 0
+    )
+
+    cc_ids = [a.id for a in db.query(Account).filter(Account.account_type == "credit_card").all()]
+    rows = (
+        db.query(Transaction.date, func.sum(Transaction.amount))
+        .filter(
+            Transaction.account_id.in_(cc_ids),
+            Transaction.date >= since,
+            Transaction.date <= today,
+            Transaction.is_pending.is_(False),
+            Transaction.is_fixed_expense.is_(False),
+            Transaction.amount > 0,
+            (Transaction.category.is_(None)) | (Transaction.category != "Investment Transfer"),
+        )
+        .group_by(Transaction.date)
+        .all()
+    )
+    spend_by_day = {d: float(total) for d, total in rows}
+
+    def _daily_budget(d: date) -> float:
+        return total_budget / _cal.monthrange(d.year, d.month)[1] if total_budget > 0 else 0.0
+
+    current_streak = 0
+    longest_streak = 0
+    run = 0
+    no_spend_month = 0
+    no_spend_90d = 0
+
+    d = since
+    while d <= today:
+        spent = spend_by_day.get(d, 0.0)
+        under = (spent <= _daily_budget(d)) if total_budget > 0 else (spent == 0.0)
+        if under:
+            run += 1
+            longest_streak = max(longest_streak, run)
+        else:
+            run = 0
+        if spent == 0.0:
+            no_spend_90d += 1
+            if d.year == today.year and d.month == today.month:
+                no_spend_month += 1
+        d += timedelta(days=1)
+    current_streak = run
+
+    return {
+        "has_budgets": total_budget > 0,
+        "daily_budget": round(_daily_budget(today), 2),
+        "current_under_budget_streak": current_streak,
+        "longest_streak_90d": longest_streak,
+        "no_spend_days_this_month": no_spend_month,
+        "no_spend_days_90d": no_spend_90d,
+    }

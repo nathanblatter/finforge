@@ -3,6 +3,7 @@ import { useFinancialPreview, useTithingIncome, useContributionPreview } from '.
 import { useDownloadQueue } from '../hooks/useDownloadQueue'
 import { api } from '../api/client'
 import Header from '../components/layout/Header'
+import WrappedCard from '../components/reports/WrappedCard'
 import { useToast } from '../components/Toast'
 import { formatCurrency, formatDate } from '../utils/format'
 
@@ -11,7 +12,7 @@ const BASE = '/api/v1'
 const TOKEN_KEY = 'finforge_token'
 
 type Period = 'monthly' | 'quarterly' | 'annual' | 'custom'
-type Tab = 'financial' | 'tithing' | 'contributions'
+type Tab = 'financial' | 'tithing' | 'contributions' | 'wrapped'
 
 interface InKindDonation {
   id: string
@@ -144,6 +145,7 @@ function TabBar({ value, onChange }: { value: Tab; onChange: (v: Tab) => void })
     { label: 'Financial', value: 'financial' },
     { label: 'Tithing', value: 'tithing' },
     { label: 'Contributions', value: 'contributions' },
+    { label: 'Wrapped', value: 'wrapped' },
   ]
   return (
     <div className="flex gap-1 border-b border-slate-700">
@@ -767,6 +769,7 @@ export default function ReportsPage() {
         {tab === 'contributions' && (
           <ContributionsTab period={period} month={month} startDate={customStart} endDate={customEnd} />
         )}
+        {tab === 'wrapped' && <WrappedCard />}
       </div>
     </div>
   )

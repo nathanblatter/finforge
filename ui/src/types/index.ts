@@ -560,3 +560,95 @@ export interface RegimeResponse {
   current: RegimeSnapshot | null
   history: RegimeSnapshot[]
 }
+
+// ---------------------------------------------------------------------------
+// Wave 7/8: spending viz, wrapped, covered calls, benchmark, sectors
+// ---------------------------------------------------------------------------
+
+export interface DailySpendingResponse {
+  start: string
+  days: { date: string; total: number; count: number }[]
+}
+
+export interface MoneyFlowResponse {
+  month: string
+  income: number
+  outflows: number
+  nodes: { name: string }[]
+  links: { source: number; target: number; value: number }[]
+}
+
+export interface StreaksResponse {
+  has_budgets: boolean
+  daily_budget: number
+  current_under_budget_streak: number
+  longest_streak_90d: number
+  no_spend_days_this_month: number
+  no_spend_days_90d: number
+}
+
+export interface WrappedResponse {
+  stats: {
+    year: number
+    total_spend: number
+    transaction_count: number
+    top_categories: [string, number][]
+    top_merchants_by_total: [string, number][]
+    top_merchants_by_visits: [string, number][]
+    biggest_month: [string, number] | null
+    largest_purchase: [string, number, string] | null
+    net_worth_start: number
+    net_worth_end: number
+    net_worth_change: number
+    best_holding: [string, number] | null
+    worst_holding: [string, number] | null
+  }
+  narrative: string | null
+  partial_year: boolean
+  cached: boolean
+}
+
+export interface CoveredCall {
+  strike: number
+  expiration_days: number
+  delta: number
+  premium: number
+  bid: number
+  ask: number
+  description: string | null
+  underlying_price: number
+  yield_pct: number
+  annualized_yield_pct: number
+}
+
+export interface CoveredCallEntry {
+  symbol: string
+  shares: number
+  contracts_available: number
+  call: CoveredCall | null
+  est_monthly_income: number | null
+  est_annual_income: number | null
+}
+
+export interface CoveredCallsResponse {
+  as_of: string
+  results: CoveredCallEntry[]
+}
+
+export interface BenchmarkResponse {
+  series: { date: string; portfolio: number; spy: number }[]
+  portfolio_return_pct: number
+  spy_return_pct: number
+  excess_return_pct: number
+  n_snapshots: number
+  start: string
+  end: string
+}
+
+export interface SectorsResponse {
+  as_of: string
+  total_value: number
+  sectors: { sector: string; value: number; pct: number }[]
+  unclassified_pct: number
+  holdings: { symbol: string; market_value: number; classification: string }[]
+}
