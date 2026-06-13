@@ -29,6 +29,7 @@ from schemas.schemas import (
     SubscriptionItem,
     SubscriptionsResponse,
     TransactionCategoryUpdate,
+    TransactionMetaUpdate,
     TransactionResponse,
 )
 
@@ -162,10 +163,11 @@ def get_monthly_spending(
 @router.get("/spending/transactions", response_model=list[TransactionResponse])
 def get_transactions(
     days: int = Query(default=30, ge=1, description="Last N days"),
+    month: str | None = Query(default=None, description="YYYY-MM — overrides days"),
     category: str | None = Query(default=None, description="Filter by FinForge category"),
     account_alias: str | None = Query(default=None, description="Filter by account alias"),
     include_pending: bool = Query(default=True),
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=500, ge=1, le=1000),
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key),
 ) -> list[TransactionResponse]:
@@ -173,13 +175,15 @@ def get_transactions(
     Filterable transaction feed across all accounts.
     account_alias returned in response — account_id and plaid_transaction_id never exposed.
     """
-    since = date.today() - timedelta(days=days)
-
     q = (
         db.query(Transaction, Account)
         .join(Account, Transaction.account_id == Account.id)
-        .filter(Transaction.date >= since)
     )
+    if month:
+        first_day, last_day = _month_bounds(month)
+        q = q.filter(Transaction.date >= first_day, Transaction.date <= last_day)
+    else:
+        q = q.filter(Transaction.date >= date.today() - timedelta(days=days))
     if not include_pending:
         q = q.filter(Transaction.is_pending == False)
     if category:
@@ -189,22 +193,24 @@ def get_transactions(
 
     rows = q.order_by(Transaction.date.desc()).limit(limit).all()
 
-    return [
-        TransactionResponse(
-            id=t.id,
-            date=t.date,
-            amount=Decimal(str(t.amount)),
-            merchant_name=t.merchant_name,
-            category=t.category,
-            subcategory=t.subcategory,
-            is_pending=t.is_pending,
-            is_fixed_expense=t.is_fixed_expense,
-            category_overridden=t.category_overridden,
-            account_alias=a.alias,
-            notes=t.notes,
-        )
-        for t, a in rows
-    ]
+    return [_txn_response(t, a) for t, a in rows]
+
+
+def _txn_response(t: Transaction, a: Account) -> TransactionResponse:
+    return TransactionResponse(
+        id=t.id,
+        date=t.date,
+        amount=Decimal(str(t.amount)),
+        merchant_name=t.merchant_name,
+        category=t.category,
+        subcategory=t.subcategory,
+        is_pending=t.is_pending,
+        is_fixed_expense=t.is_fixed_expense,
+        category_overridden=t.category_overridden,
+        account_alias=a.alias,
+        notes=t.notes,
+        tags=list(t.tags or []),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -232,12 +238,36 @@ def update_transaction_category(
     t.category_overridden = True
     db.commit()
     db.refresh(t)
-    return TransactionResponse(
-        id=t.id, date=t.date, amount=Decimal(str(t.amount)), merchant_name=t.merchant_name,
-        category=t.category, subcategory=t.subcategory, is_pending=t.is_pending,
-        is_fixed_expense=t.is_fixed_expense, category_overridden=t.category_overridden,
-        account_alias=a.alias, notes=t.notes,
-    )
+    return _txn_response(t, a)
+
+
+@router.patch("/spending/transactions/{txn_id}/meta", response_model=TransactionResponse)
+def update_transaction_meta(
+    txn_id: uuid.UUID,
+    body: TransactionMetaUpdate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> TransactionResponse:
+    """Set a transaction's note and/or tags. Omitted fields are left as-is;
+    an empty string note or empty tags list clears the field."""
+    row = db.query(Transaction, Account).join(Account, Transaction.account_id == Account.id).filter(Transaction.id == txn_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    t, a = row
+    if body.notes is not None:
+        t.notes = body.notes.strip() or None
+    if body.tags is not None:
+        cleaned = []
+        for tag in body.tags:
+            tag = tag.strip().lower().lstrip("#")[:50]
+            if tag and tag not in cleaned:
+                cleaned.append(tag)
+        if len(cleaned) > 10:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Max 10 tags per transaction")
+        t.tags = cleaned
+    db.commit()
+    db.refresh(t)
+    return _txn_response(t, a)
 
 
 @router.get("/spending/rules", response_model=CategoryRulesResponse)

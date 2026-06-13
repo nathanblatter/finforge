@@ -4,10 +4,11 @@ import SpendSummary from '../components/spending/SpendSummary'
 import CategoryDonut from '../components/spending/CategoryDonut'
 import CardSplit from '../components/spending/CardSplit'
 import FixedExpensesPanel from '../components/spending/FixedExpensesPanel'
-import TransactionFeed from '../components/spending/TransactionFeed'
+import TransactionFeed, { type FeedFilter } from '../components/spending/TransactionFeed'
 import { ForecastPanel, AnomaliesPanel } from '../components/spending/ForecastPanel'
 import { SpendingHeatmap, MoneyFlowSankey, StreaksCard } from '../components/spending/SpendingViz'
 import BillCalendar from '../components/spending/BillCalendar'
+import MonthCompare from '../components/spending/MonthCompare'
 import Header from '../components/layout/Header'
 
 function MonthSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -42,9 +43,16 @@ export default function SpendingPage() {
   const now = new Date()
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const [month, setMonth] = useState(defaultMonth)
+  const [filter, setFilter] = useState<FeedFilter>({})
 
   const { data: spending, isLoading: spendLoading } = useMonthlySpending(month)
   const { data: transactions, isLoading: txLoading } = useTransactions({ month })
+
+  // Cross-filter: clicking a chart toggles the matching feed filter.
+  const toggle = (key: keyof FeedFilter, value: string) =>
+    setFilter((f) => ({ ...f, [key]: f[key] === value ? undefined : value }))
+  const clearKey = (key: keyof FeedFilter) =>
+    setFilter((f) => ({ ...f, [key]: undefined }))
 
   return (
     <div className="space-y-6">
@@ -66,7 +74,11 @@ export default function SpendingPage() {
           {spendLoading || !spending ? (
             <Skeleton className="h-64" />
           ) : (
-            <CategoryDonut data={spending.by_category} />
+            <CategoryDonut
+              data={spending.by_category}
+              selectedCategory={filter.category}
+              onSelectCategory={(c) => toggle('category', c)}
+            />
           )}
         </div>
         <div className="space-y-4">
@@ -77,7 +89,11 @@ export default function SpendingPage() {
             </>
           ) : (
             <>
-              <CardSplit data={spending.by_card} />
+              <CardSplit
+                data={spending.by_card}
+                selectedCard={filter.card}
+                onSelectCard={(c) => toggle('card', c)}
+              />
               <FixedExpensesPanel data={spending.fixed_expenses} />
             </>
           )}
@@ -87,6 +103,8 @@ export default function SpendingPage() {
       <AnomaliesPanel />
 
       <BillCalendar />
+
+      <MonthCompare />
 
       <MoneyFlowSankey month={month} />
 
@@ -101,7 +119,12 @@ export default function SpendingPage() {
       {txLoading || !transactions ? (
         <Skeleton className="h-64" />
       ) : (
-        <TransactionFeed transactions={transactions} />
+        <TransactionFeed
+          transactions={transactions}
+          externalFilter={filter}
+          onClearExternal={clearKey}
+          onSelectTag={(tag) => toggle('tag', tag)}
+        />
       )}
     </div>
   )

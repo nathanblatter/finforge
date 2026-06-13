@@ -1,0 +1,17 @@
+{
+  "name": "FinForge",
+  "short_name": "FinForge",
+  "description": "Self-hosted personal finance",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/finforge_minimal.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -10,6 +10,8 @@ const COLORS = [
 
 interface Props {
   data: CategorySpend[]
+  selectedCategory?: string
+  onSelectCategory?: (category: string) => void
 }
 
 function renderActiveShape(props: Record<string, unknown>) {
@@ -31,10 +33,17 @@ function renderActiveShape(props: Record<string, unknown>) {
   )
 }
 
-export default function CategoryDonut({ data }: Props) {
+export default function CategoryDonut({ data, selectedCategory, onSelectCategory }: Props) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
 
   const sorted = [...data].sort((a, b) => b.amount - a.amount)
+
+  // Clicking a slice/legend highlights it locally and, when wired, drives the
+  // cross-filter on the transaction feed below.
+  const pick = (i: number) => {
+    setActiveIndex(activeIndex === i ? null : i)
+    onSelectCategory?.(sorted[i].category)
+  }
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
@@ -53,9 +62,7 @@ export default function CategoryDonut({ data }: Props) {
                 outerRadius={90}
                 activeIndex={activeIndex ?? undefined}
                 activeShape={renderActiveShape}
-                onClick={(_, index) =>
-                  setActiveIndex(activeIndex === index ? null : index)
-                }
+                onClick={(_, index) => pick(index)}
               >
                 {sorted.map((_, i) => (
                   <Cell
@@ -81,9 +88,9 @@ export default function CategoryDonut({ data }: Props) {
             <div
               key={cat.category}
               className={`flex items-center justify-between text-sm cursor-pointer rounded px-2 py-1 transition-colors ${
-                activeIndex === i ? 'bg-slate-700' : 'hover:bg-slate-750'
+                activeIndex === i || selectedCategory === cat.category ? 'bg-slate-700' : 'hover:bg-slate-750'
               }`}
-              onClick={() => setActiveIndex(activeIndex === i ? null : i)}
+              onClick={() => pick(i)}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <span

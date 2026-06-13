@@ -134,6 +134,12 @@ export const api = {
       body: JSON.stringify({ category }),
     }),
 
+  updateTransactionMeta: (id: string, meta: { notes?: string; tags?: string[] }) =>
+    apiFetch<TransactionResponse>(`/spending/transactions/${id}/meta`, {
+      method: 'PATCH',
+      body: JSON.stringify(meta),
+    }),
+
   getCategoryRules: () =>
     apiFetch<CategoryRulesResponse>('/spending/rules'),
 

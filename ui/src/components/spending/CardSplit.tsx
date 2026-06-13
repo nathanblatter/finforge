@@ -3,9 +3,11 @@ import type { CardSpend } from '../../types'
 
 interface Props {
   data: CardSpend[]
+  selectedCard?: string
+  onSelectCard?: (alias: string) => void
 }
 
-export default function CardSplit({ data }: Props) {
+export default function CardSplit({ data, selectedCard, onSelectCard }: Props) {
   const total = data.reduce((sum, c) => sum + c.amount, 0)
 
   return (
@@ -15,7 +17,13 @@ export default function CardSplit({ data }: Props) {
         {data.map((card) => {
           const pct = total > 0 ? (card.amount / total) * 100 : 0
           return (
-            <div key={card.alias}>
+            <div
+              key={card.alias}
+              onClick={() => onSelectCard?.(card.alias)}
+              className={`rounded-lg -mx-2 px-2 py-1.5 transition-colors ${
+                onSelectCard ? 'cursor-pointer hover:bg-slate-700/40' : ''
+              } ${selectedCard === card.alias ? 'bg-slate-700/60' : ''}`}
+            >
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-sm text-slate-300">{card.alias}</span>
                 <div className="flex items-center gap-2">

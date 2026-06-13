@@ -56,6 +56,7 @@ export interface TransactionResponse {
   category_overridden: boolean
   account_alias: string
   notes: string | null
+  tags: string[]
 }
 
 export interface CategoryRule {

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useAlerts } from '../../hooks/useAlerts'
 import { useAuth } from '../../hooks/useAuth'
+import { usePrivacy } from '../../hooks/usePrivacy'
 import HealthIndicator from './HealthIndicator'
 
 function GridIcon() {
@@ -156,6 +157,35 @@ const staticNavItems = [
   { label: 'Insights',    to: '/insights',    icon: <SparkleIcon /> },
 ]
 
+function PrivacyToggle() {
+  const { enabled, toggle } = usePrivacy()
+  return (
+    <button
+      onClick={toggle}
+      title="Toggle privacy mode (Shift+P)"
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full ${
+        enabled ? 'text-amber-400 bg-slate-800' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+      }`}
+    >
+      {enabled ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+          <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 11 8 11 8a13.16 13.16 0 0 1-1.67 2.68" />
+          <path d="M6.61 6.61A13.526 13.526 0 0 0 1 13s4 8 11 8a9.74 9.74 0 0 0 5.39-1.61" />
+          <line x1="2" y1="2" x2="22" y2="22" />
+        </svg>
+      ) : (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      )}
+      <span className="flex-1 text-left">{enabled ? 'Amounts Hidden' : 'Privacy Mode'}</span>
+      <kbd className="text-[10px] border border-slate-600 rounded px-1 py-0.5 text-slate-500">⇧P</kbd>
+    </button>
+  )
+}
+
 function LogoutButton() {
   const { logout } = useAuth()
   return (
@@ -180,7 +210,7 @@ export default function Sidebar() {
   const unacknowledgedCount = alertsData?.unacknowledged_count ?? 0
 
   return (
-    <aside className="w-[220px] flex-shrink-0 flex flex-col bg-slate-900 border-r border-slate-700 py-6 px-4">
+    <aside className="w-[220px] flex-shrink-0 hidden md:flex flex-col bg-slate-900 border-r border-slate-700 py-6 px-4 overflow-y-auto">
       <div className="mb-6 px-2 flex items-center gap-2.5">
         <img src="/finforge_minimal.png" alt="FinForge" className="w-8 h-8 rounded-md" />
         <span className="text-xl font-bold text-sky-400 tracking-tight">FinForge</span>
@@ -258,6 +288,7 @@ export default function Sidebar() {
           </svg>
           Settings
         </NavLink>
+        <PrivacyToggle />
         <LogoutButton />
         <HealthIndicator />
       </div>
