@@ -1,4 +1,16 @@
+// Privacy mode masks every currency string app-wide. The flag lives at module
+// level so the format helpers stay plain functions; PrivacyProvider keeps it
+// in sync and forces a remount so stale strings can't linger.
+let privacyMode = false
+
+export function setPrivacyMode(on: boolean) {
+  privacyMode = on
+}
+
+const MASK = '$•••••'
+
 export function formatCurrency(value: number | string): string {
+  if (privacyMode) return MASK
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -8,6 +20,7 @@ export function formatCurrency(value: number | string): string {
 }
 
 export function formatCurrencyCompact(value: number | string): string {
+  if (privacyMode) return MASK
   value = Number(value)
   if (Math.abs(value) >= 1_000_000) {
     return new Intl.NumberFormat('en-US', {

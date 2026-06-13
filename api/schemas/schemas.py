@@ -255,11 +255,19 @@ class TransactionResponse(BaseModel):
     category_overridden: bool = False
     account_alias: str      # never account_id — joined from accounts table
     notes: Optional[str]
+    tags: list[str] = []
 
 
 class TransactionCategoryUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=False)
     category: str
+
+
+class TransactionMetaUpdate(BaseModel):
+    """Partial update — omitted fields are left untouched."""
+    model_config = ConfigDict(from_attributes=False)
+    notes: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 class CategoryRuleCreate(BaseModel):

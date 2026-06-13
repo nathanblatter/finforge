@@ -24,6 +24,15 @@ export function useRecategorize() {
   })
 }
 
+export function useUpdateTransactionMeta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, notes, tags }: { id: string; notes?: string; tags?: string[] }) =>
+      api.updateTransactionMeta(id, { notes, tags }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['spending'] }),
+  })
+}
+
 export function useCategoryRules() {
   return useQuery({
     queryKey: ['category-rules'],
