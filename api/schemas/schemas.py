@@ -795,3 +795,48 @@ class PortfolioDrawdownResponse(BaseModel):
     predictions: list[DrawdownPredictionResponse]
     model_trained_at: Optional[str] = None
     model_auc: Optional[Decimal] = None
+
+
+# ---------------------------------------------------------------------------
+# Tax Center
+# ---------------------------------------------------------------------------
+
+class TLHOpportunity(BaseModel):
+    """A harvestable unrealized loss in the taxable brokerage account."""
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    market_value: Decimal
+    cost_basis: Decimal
+    unrealized_loss: Decimal  # positive magnitude of the loss
+    est_tax_benefit: Decimal  # unrealized_loss * marginal_rate
+    wash_sale_risk: bool = False
+    wash_sale_details: Optional[str] = None
+
+
+class RealizedActivityItem(BaseModel):
+    """A realized SELL recorded from Schwab orders (proceeds only — no lot basis)."""
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    proceeds: Decimal
+    txn_count: int
+
+
+class TaxSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    analysis_date: Optional[date] = None
+    tax_year: int
+    marginal_rate: Decimal
+    # Unrealized picture (taxable brokerage only — IRA excluded as tax-advantaged)
+    net_unrealized_gl: Decimal
+    gross_unrealized_gains: Decimal
+    gross_unrealized_losses: Decimal  # positive magnitude
+    # Tax-loss harvesting
+    harvestable_loss: Decimal  # positive magnitude, excludes wash-sale-risk lots
+    est_tax_savings: Decimal
+    tlh_opportunities: list[TLHOpportunity]
+    wash_sale_warnings: int
+    # Realized activity (YTD, from last ~90d of Schwab orders — proceeds only)
+    realized_ytd_proceeds: Decimal
+    realized_ytd_sells: int
+    realized_activity: list[RealizedActivityItem]
+    realized_is_partial: bool = True  # orders sync only covers a trailing window

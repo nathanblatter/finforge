@@ -15,6 +15,7 @@ const more = [
   { label: 'Reimburse', to: '/reimbursement' },
   { label: 'Reports', to: '/reports' },
   { label: 'Investments', to: '/investments' },
+  { label: 'Tax Center', to: '/tax' },
   { label: 'Watchlists', to: '/watchlists' },
   { label: 'Goals', to: '/goals' },
   { label: 'Chat', to: '/chat' },
