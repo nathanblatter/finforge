@@ -132,6 +132,17 @@ function ChatIcon() {
   )
 }
 
+function TaxIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="19" y1="5" x2="5" y2="19" />
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+    </svg>
+  )
+}
+
 function BellIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
@@ -151,6 +162,7 @@ const staticNavItems = [
   { label: 'Reports',     to: '/reports',       icon: <FileTextIcon /> },
   { label: 'Investments', to: '/investments', icon: <TrendingUpIcon /> },
   { label: 'Portfolio',   to: '/portfolio',   icon: <BarChartIcon /> },
+  { label: 'Tax Center',  to: '/tax',         icon: <TaxIcon /> },
   { label: 'Watchlists',  to: '/watchlists',  icon: <EyeIcon /> },
   { label: 'Goals',       to: '/goals',       icon: <FlagIcon /> },
   { label: 'Chat',        to: '/chat',        icon: <ChatIcon /> },

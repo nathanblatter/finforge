@@ -726,3 +726,37 @@ export interface WhatIfResponse {
   whatif: WhatIfPoint & { weights: Record<string, number> }
   current: WhatIfPoint | null
 }
+
+// Tax Center
+export interface TLHOpportunity {
+  symbol: string
+  market_value: number
+  cost_basis: number
+  unrealized_loss: number
+  est_tax_benefit: number
+  wash_sale_risk: boolean
+  wash_sale_details: string | null
+}
+
+export interface RealizedActivityItem {
+  symbol: string
+  proceeds: number
+  txn_count: number
+}
+
+export interface TaxSummaryResponse {
+  analysis_date: string | null
+  tax_year: number
+  marginal_rate: number
+  net_unrealized_gl: number
+  gross_unrealized_gains: number
+  gross_unrealized_losses: number
+  harvestable_loss: number
+  est_tax_savings: number
+  tlh_opportunities: TLHOpportunity[]
+  wash_sale_warnings: number
+  realized_ytd_proceeds: number
+  realized_ytd_sells: number
+  realized_activity: RealizedActivityItem[]
+  realized_is_partial: boolean
+}

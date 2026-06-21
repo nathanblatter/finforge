@@ -51,6 +51,7 @@ import type {
   MerchantDetailResponse,
   BillsForecastResponse,
   WhatIfResponse,
+  TaxSummaryResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -459,6 +460,30 @@ export const api = {
     const [y, m] = body.month.split('-')
     const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('en-US', { month: 'long' })
     a.download = match?.[1] || `${monthName} '${y.slice(2)} expenses.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+
+  getTaxSummary: (marginalRate?: number) =>
+    apiFetch<TaxSummaryResponse>(
+      `/tax/summary${marginalRate != null ? `?marginal_rate=${marginalRate}` : ''}`,
+    ),
+
+  exportTaxHoldings: async () => {
+    const token = localStorage.getItem(TOKEN_KEY)
+    const headers: Record<string, string> = { 'X-API-Key': API_KEY }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(`${BASE}/tax/holdings.csv`, { headers })
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const cd = res.headers.get('content-disposition')
+    const match = cd?.match(/filename="?(.+?)"?$/)
+    a.download = match?.[1] || `finforge_holdings_${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
