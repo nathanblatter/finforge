@@ -4,6 +4,7 @@ import MobileNav from './MobileNav'
 import DownloadQueue from './DownloadQueue'
 import ErrorBoundary from '../ErrorBoundary'
 import CommandPalette from '../CommandPalette'
+import BugReport from '../BugReport'
 import { DownloadQueueProvider } from '../../hooks/useDownloadQueue'
 import { PrivacyProvider, PrivacyScope } from '../../hooks/usePrivacy'
 
@@ -22,6 +23,7 @@ export default function Layout() {
             <MobileNav />
             <DownloadQueue />
             <CommandPalette />
+            <BugReport />
           </div>
         </PrivacyScope>
       </DownloadQueueProvider>

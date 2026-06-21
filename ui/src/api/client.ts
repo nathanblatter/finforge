@@ -88,6 +88,17 @@ export const api = {
   getHealth: () =>
     apiFetch<HealthResponse>('/health'),
 
+  submitBugReport: (body: {
+    message: string
+    severity: string
+    url?: string
+    meta?: Record<string, unknown>
+  }) =>
+    apiFetch<{ ok: boolean }>('/bug-report', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   getSummary: () =>
     apiFetch<SummaryResponse>('/summary'),
 

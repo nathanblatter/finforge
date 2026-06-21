@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # KPI endpoint
     kpi_api_key: str = ""
 
+    # Flightdeck bug ingest (server-side proxy keeps the ingest key off the client)
+    flightdeck_url: str = "http://flightdeck:8080"
+    flightdeck_ingest_key: str = ""
+
     # App
     environment: str = "development"
     log_level: str = "INFO"
