@@ -23,6 +23,7 @@ const BudgetsPage            = lazy(() => import('./pages/BudgetsPage'))
 const SubscriptionsPage      = lazy(() => import('./pages/SubscriptionsPage'))
 const InsightsPage           = lazy(() => import('./pages/InsightsPage'))
 const MerchantPage           = lazy(() => import('./pages/MerchantPage'))
+const TaxCenterPage          = lazy(() => import('./pages/TaxCenterPage'))
 
 function PageLoader() {
   return (
@@ -90,6 +91,9 @@ function AuthenticatedRoutes() {
         } />
         <Route path="portfolio" element={
           <Suspense fallback={<PageLoader />}><PortfolioAnalysisPage /></Suspense>
+        } />
+        <Route path="tax" element={
+          <Suspense fallback={<PageLoader />}><TaxCenterPage /></Suspense>
         } />
         <Route path="alerts" element={
           <Suspense fallback={<PageLoader />}><AlertsPage /></Suspense>

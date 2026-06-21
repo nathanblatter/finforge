@@ -22,12 +22,14 @@ from routers.watchlists import router as watchlists_router
 from routers.budgets import router as budgets_router
 from routers.price_alerts import router as price_alerts_router
 from routers.quant import router as quant_router
+from routers.tax import router as tax_router
 
 __all__ = [
     "alerts_router",
     "budgets_router",
     "price_alerts_router",
     "quant_router",
+    "tax_router",
     "kpi_router",
     "auth_router",
     "balances_router",
