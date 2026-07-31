@@ -66,3 +66,26 @@ export function useSubscriptions(months = 6) {
     queryFn: () => api.getSubscriptions(months),
   })
 }
+
+export function useChargeGuardianFindings(status: 'open' | 'dismissed' | 'legit' | 'all' = 'open') {
+  return useQuery({
+    queryKey: ['spending', 'charge-guardian', status],
+    queryFn: () => api.getChargeGuardianFindings(status),
+  })
+}
+
+export function useDismissChargeGuardianFinding() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.dismissChargeGuardianFinding(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['spending', 'charge-guardian'] }),
+  })
+}
+
+export function useMarkChargeGuardianFindingLegit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.markChargeGuardianFindingLegit(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['spending', 'charge-guardian'] }),
+  })
+}

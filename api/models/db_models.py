@@ -790,6 +790,35 @@ class SpendingAnomaly(Base):
     def __repr__(self) -> str:
         return f"<SpendingAnomaly txn={self.transaction_id!r} reason={self.reason!r}>"
 
+class ChargeGuardianFinding(Base):
+    """A fraud-style anomaly flagged by the Charge Guardian detectors:
+    duplicate charges, new-subscription/trial-conversion, or gray-charge creep."""
+
+    __tablename__ = "charge_guardian_findings"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_charge_guardian_dedupe_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    merchant: Mapped[str] = mapped_column(String(255), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(400), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_transaction_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+    )
+    amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")  # open | dismissed | legit
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChargeGuardianFinding kind={self.kind!r} merchant={self.merchant!r} status={self.status!r}>"
+
+
 class MarketRegime(Base):
     """Daily market regime classification derived from SPY price action."""
 

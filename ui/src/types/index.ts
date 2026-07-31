@@ -549,6 +549,33 @@ export interface SpendingAnomaliesResponse {
   anomalies: SpendingAnomalyItem[]
 }
 
+export type ChargeGuardianKind = 'duplicate_charge' | 'new_subscription' | 'trial_conversion' | 'gray_charge_creep'
+export type ChargeGuardianStatus = 'open' | 'dismissed' | 'legit'
+
+export interface ChargeGuardianEvidenceTxn {
+  id: string
+  date: string
+  amount: number
+  merchant_name: string | null
+  account_id: string
+}
+
+export interface ChargeGuardianFindingItem {
+  id: string
+  kind: ChargeGuardianKind
+  merchant: string
+  title: string
+  detail: string
+  amount: number | null
+  status: ChargeGuardianStatus
+  created_at: string
+  evidence_transactions: ChargeGuardianEvidenceTxn[]
+}
+
+export interface ChargeGuardianFindingsResponse {
+  findings: ChargeGuardianFindingItem[]
+}
+
 export interface RegimeSnapshot {
   date: string
   regime: 'bull_quiet' | 'bull_volatile' | 'bear_quiet' | 'bear_volatile' | 'choppy'

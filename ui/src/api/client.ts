@@ -39,6 +39,7 @@ import type {
   MonteCarloResponse,
   SpendingForecastResponse,
   SpendingAnomaliesResponse,
+  ChargeGuardianFindingsResponse,
   RegimeResponse,
   CoveredCallsResponse,
   BenchmarkResponse,
@@ -354,6 +355,15 @@ export const api = {
 
   dismissAnomaly: (id: string) =>
     apiFetch<void>(`/spending/anomalies/${id}/dismiss`, { method: 'POST' }),
+
+  getChargeGuardianFindings: (status: 'open' | 'dismissed' | 'legit' | 'all' = 'open') =>
+    apiFetch<ChargeGuardianFindingsResponse>(`/spending/charge-guardian?status=${status}`),
+
+  dismissChargeGuardianFinding: (id: string) =>
+    apiFetch<void>(`/spending/charge-guardian/${id}/dismiss`, { method: 'POST' }),
+
+  markChargeGuardianFindingLegit: (id: string) =>
+    apiFetch<void>(`/spending/charge-guardian/${id}/mark-legit`, { method: 'POST' }),
 
   // Quant analytics
   getFrontier: () =>

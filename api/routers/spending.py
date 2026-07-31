@@ -17,7 +17,7 @@ from statistics import median
 
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Account, Balance, Budget, CategoryRule, SpendingAnomaly, Transaction
+from models.db_models import Account, Balance, Budget, CategoryRule, ChargeGuardianFinding, SpendingAnomaly, Transaction
 from schemas.schemas import (
     CardSpend,
     CategoryRuleCreate,
@@ -546,6 +546,93 @@ def dismiss_anomaly(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anomaly not found")
     row.is_dismissed = True
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Charge Guardian — duplicate charges, new subscriptions / trial conversions,
+# and gray-charge creep (cron/charge_guardian.py writes these findings).
+# ---------------------------------------------------------------------------
+
+@router.get("/spending/charge-guardian")
+def get_charge_guardian_findings(
+    status_filter: Optional[str] = Query(default="open", alias="status", description="open | dismissed | legit | all"),
+    kind: Optional[str] = Query(default=None, description="Filter to one detector: duplicate_charge | new_subscription | trial_conversion | gray_charge_creep"),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+):
+    """Flagged Charge Guardian findings, with their evidence transactions."""
+    q = db.query(ChargeGuardianFinding)
+    if status_filter and status_filter != "all":
+        q = q.filter(ChargeGuardianFinding.status == status_filter)
+    if kind:
+        q = q.filter(ChargeGuardianFinding.kind == kind)
+    rows = q.order_by(ChargeGuardianFinding.created_at.desc()).limit(limit).all()
+
+    # Batch-load evidence transactions for all findings in one query.
+    all_txn_ids = {tid for r in rows for tid in (r.evidence_transaction_ids or [])}
+    txn_map: dict[uuid.UUID, Transaction] = {}
+    if all_txn_ids:
+        for t in db.query(Transaction).filter(Transaction.id.in_(all_txn_ids)).all():
+            txn_map[t.id] = t
+
+    return {
+        "findings": [
+            {
+                "id": str(r.id),
+                "kind": r.kind,
+                "merchant": r.merchant,
+                "title": r.title,
+                "detail": r.detail,
+                "amount": float(r.amount) if r.amount is not None else None,
+                "status": r.status,
+                "created_at": r.created_at.isoformat(),
+                "evidence_transactions": [
+                    {
+                        "id": str(t.id),
+                        "date": t.date.isoformat(),
+                        "amount": float(t.amount),
+                        "merchant_name": t.merchant_name,
+                        "account_id": str(t.account_id),
+                    }
+                    for tid in (r.evidence_transaction_ids or [])
+                    if (t := txn_map.get(tid)) is not None
+                ],
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/spending/charge-guardian/{finding_id}/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+def dismiss_charge_guardian_finding(
+    finding_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> None:
+    """Dismiss this one finding. It won't re-alert (suppressed by dedupe_key),
+    but the same merchant/kind can still surface a *different* finding later
+    (e.g. next month's gray-charge digest)."""
+    row = db.query(ChargeGuardianFinding).filter_by(id=finding_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
+    row.status = "dismissed"
+    db.commit()
+
+
+@router.post("/spending/charge-guardian/{finding_id}/mark-legit", status_code=status.HTTP_204_NO_CONTENT)
+def mark_charge_guardian_finding_legit(
+    finding_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key),
+) -> None:
+    """Permanently mute this merchant for this detector kind — future cron
+    runs will skip creating new findings for the same (merchant, kind)."""
+    row = db.query(ChargeGuardianFinding).filter_by(id=finding_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
+    row.status = "legit"
     db.commit()
 
 
