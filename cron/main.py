@@ -239,6 +239,18 @@ def spending_anomalies() -> None:
         logger.error("spending_anomalies failed:\n%s", traceback.format_exc())
 
 
+def charge_guardian() -> None:
+    """Fraud-style anomaly alerts: duplicate charges, new subscriptions,
+    trial-to-paid conversions, and gray-charge creep."""
+    logger.info("Running charge_guardian...")
+    try:
+        from charge_guardian import run_charge_guardian
+        run_charge_guardian()
+        logger.info("charge_guardian completed successfully.")
+    except Exception:
+        logger.error("charge_guardian failed:\n%s", traceback.format_exc())
+
+
 def category_model_train() -> None:
     """Retrain the merchant→category classifier on labeled transactions."""
     logger.info("Running category_model_train...")
@@ -503,6 +515,14 @@ def build_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        charge_guardian,
+        trigger=CronTrigger(hour=2, minute=58, timezone=TIMEZONE),
+        id="charge_guardian",
+        name="Charge Guardian (duplicate/trial/gray-charge detection)",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         category_model_train,
         trigger=CronTrigger(day_of_week="sun", hour=3, minute=30, timezone=TIMEZONE),
         id="category_model_train",
@@ -589,6 +609,7 @@ ALL_SYNC_JOBS = {
     "check_budget_alerts": check_budget_alerts,
     "check_price_alerts": check_price_alerts,
     "spending_anomalies": spending_anomalies,
+    "charge_guardian": charge_guardian,
     "category_model_train": category_model_train,
     "market_regime": market_regime,
     "market_intel": market_intel,

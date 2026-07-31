@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../components/layout/Header'
+import ChargeGuardianPanel from '../components/spending/ChargeGuardianPanel'
 import { useSubscriptions } from '../hooks/useSpending'
 import { formatCurrency, formatDate } from '../utils/format'
 
@@ -32,6 +33,8 @@ export default function SubscriptionsPage() {
       <p className="text-sm text-slate-500 -mt-2">
         Recurring charges detected from merchants that appear in 3+ months with consistent amounts.
       </p>
+
+      <ChargeGuardianPanel />
 
       {isLoading ? (
         <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
