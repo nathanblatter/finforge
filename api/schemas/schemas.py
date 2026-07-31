@@ -548,6 +548,74 @@ class PriceAlertCreateRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Dividend & income calendar (finforge-5)
+# ---------------------------------------------------------------------------
+
+class DividendTransactionItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    account_id: uuid.UUID
+    symbol: str
+    pay_date: date
+    amount: Decimal
+    activity_type: str
+    quantity_at_payment: Optional[Decimal]
+    per_share_amount: Optional[Decimal]
+    is_reinvested: bool
+    reinvest_amount: Optional[Decimal]
+
+
+class DividendHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    transactions: list[DividendTransactionItem]
+
+
+class DividendHoldingProjection(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    quantity: Decimal
+    per_share_amount: Optional[Decimal]  # most recent observed per-share payment
+    frequency: Optional[str]  # "monthly" | "quarterly" | "semiannual" | "annual"
+    payments_per_year: Optional[int]
+    projected_annual_income: Decimal
+    yield_on_cost_pct: Optional[Decimal]
+    cost_basis: Optional[Decimal]
+    source: Literal["market_data", "history", "insufficient_data"]
+    last_payment_date: Optional[date]
+    payment_count: int
+    cumulative_reinvested: Decimal
+    cumulative_cash_received: Decimal
+
+
+class DividendIncomeSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    portfolio_projected_annual_income: Decimal
+    portfolio_yield_on_cost_pct: Optional[Decimal]
+    portfolio_cumulative_reinvested: Decimal
+    portfolio_cumulative_cash_received: Decimal
+    holdings: list[DividendHoldingProjection]
+    as_of: date
+    has_any_market_data_rates: bool
+
+
+class DividendCalendarPayment(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    expected_pay_date: date
+    expected_amount: Decimal
+    per_share_amount: Optional[Decimal]
+    quantity: Decimal
+    confidence: Literal["high", "medium"]
+
+
+class DividendCalendarResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    payments: list[DividendCalendarPayment]
+    start_date: date
+    end_date: date
+
+
+# ---------------------------------------------------------------------------
 # Chat
 # ---------------------------------------------------------------------------
 

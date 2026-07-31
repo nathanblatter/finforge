@@ -160,6 +160,17 @@ def annual_wrapped() -> None:
         logger.error("annual_wrapped failed:\n%s", traceback.format_exc())
 
 
+def dividend_income_sync() -> None:
+    """Backfill dividend per-share/DRIP metadata and evaluate raise/cut alerts."""
+    logger.info("Running dividend_income_sync...")
+    try:
+        from dividend_engine import run_dividend_income_sync
+        run_dividend_income_sync()
+        logger.info("dividend_income_sync completed successfully.")
+    except Exception:
+        logger.error("dividend_income_sync failed:\n%s", traceback.format_exc())
+
+
 def market_regime() -> None:
     """Classify the current market regime from SPY price action."""
     logger.info("Running market_regime...")
@@ -360,6 +371,15 @@ def build_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        dividend_income_sync,
+        # Runs after schwab_sync (2:05) so the day's dividend_transactions rows exist.
+        trigger=CronTrigger(hour=2, minute=20, timezone=TIMEZONE),
+        id="dividend_income_sync",
+        name="Dividend Income Sync (metadata + raise/cut alerts)",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         market_intel,
         trigger=CronTrigger(hour=6, minute=30, timezone=TIMEZONE),
         id="market_intel",
@@ -521,6 +541,7 @@ ALL_SYNC_JOBS = {
     "category_model_train": category_model_train,
     "market_regime": market_regime,
     "market_intel": market_intel,
+    "dividend_income_sync": dividend_income_sync,
     "check_subscription_hikes": check_subscription_hikes,
     "schwab_token_watchdog": schwab_token_watchdog,
 }

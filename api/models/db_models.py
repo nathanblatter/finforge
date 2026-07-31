@@ -839,6 +839,47 @@ class SpendingAnomaly(Base):
     def __repr__(self) -> str:
         return f"<SpendingAnomaly txn={self.transaction_id!r} reason={self.reason!r}>"
 
+class DividendTransaction(Base):
+    """A dividend or interest payment from Schwab transaction history.
+
+    Written by the Schwab sync (raw amount only), then backfilled by the
+    cron dividend engine with quantity/per-share/DRIP linkage once holdings
+    snapshots and any matching reinvestment buy are available.
+    """
+
+    __tablename__ = "dividend_transactions"
+    __table_args__ = (
+        UniqueConstraint("schwab_activity_id", name="uq_dividend_txn_schwab_activity_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    pay_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    activity_type: Mapped[str] = mapped_column(String(20), nullable=False, default="dividend")  # dividend | interest
+    # Backfilled by the cron dividend engine:
+    quantity_at_payment: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 6), nullable=True)
+    per_share_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    is_reinvested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reinvest_transaction_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
+    )
+    reinvest_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    schwab_activity_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    account: Mapped["Account"] = relationship("Account")
+
+    def __repr__(self) -> str:
+        return (
+            f"<DividendTransaction symbol={self.symbol!r} pay_date={self.pay_date!r} "
+            f"amount={self.amount!r} reinvested={self.is_reinvested!r}>"
+        )
+
+
 class MarketRegime(Base):
     """Daily market regime classification derived from SPY price action."""
 

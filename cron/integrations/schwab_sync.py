@@ -30,6 +30,7 @@ import httpx
 from config import settings
 from db import (
     BalanceRow,
+    DividendTransactionRow,
     HoldingRow,
     InvestmentTransactionRow,
     TransactionRow,
@@ -389,7 +390,9 @@ def _map_order_to_transaction(order: dict[str, Any], account_uuid: str) -> dict[
 
 
 # ---------------------------------------------------------------------------
-# Transactions sync — lot-level trades + dividends/interest (Tax Center)
+# Transactions sync — one /transactions fetch feeding BOTH
+#   investment_transactions  (Tax Center: lot-level trades + income)
+#   dividend_transactions    (dividend & income calendar — finforge-5)
 # ---------------------------------------------------------------------------
 
 # Instrument asset types that represent a security (vs. cash/fee legs).
@@ -398,16 +401,28 @@ _SECURITY_ASSET_TYPES = {
     "FIXED_INCOME", "OPTION", "INDEX", "PRODUCT",
 }
 
+DIVIDEND_TRANSACTION_TYPES = {"DIVIDEND_OR_INTEREST", "DIVIDEND", "INTEREST"}
+# Non-equity legs (cash movements) that show up alongside the real instrument leg
+# in a dividend transaction's transferItems — never treat these as "the symbol".
+_NON_EQUITY_ASSET_TYPES = {"CURRENCY", "CASH_EQUIVALENT"}
+
 
 def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
     """
-    Fetch account activity from /accounts/{accountHash}/transactions and store
-    it in investment_transactions.
+    Fetch account activity from /accounts/{accountHash}/transactions once and
+    fan it out to both consumers:
 
-    Unlike the orders sync (90 days, no per-lot data), this endpoint covers up
-    to a 1-year window and carries quantity + price per trade plus dividend and
-    interest credits — the raw material for the Tax Center's per-lot realized
-    gains, estimated-tax tracker, and 1099 reconciliation.
+      * investment_transactions — trades (quantity + price) plus dividend and
+        interest credits; raw material for the Tax Center's per-lot realized
+        gains, estimated-tax tracker, and 1099 reconciliation.
+      * dividend_transactions — dividend/interest cash activity keyed to a
+        symbol; consumed by cron/dividend_engine.py for the income calendar
+        (per-share backfill, cadence inference, raise/cut history).
+
+    Schwab caps each request at a 1-year window, so we fetch two consecutive
+    windows (~2 years total) — dividends are usually quarterly and the engine
+    wants enough history to infer cadence; the extra trade history also
+    extends lot-basis coverage.
     """
     hashes = token_manager.get_account_hashes()
     if not hashes:
@@ -415,8 +430,14 @@ def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
         return
 
     now = datetime.now(timezone.utc)
-    from_date = (now - timedelta(days=SCHWAB_TXNS_LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    to_date = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    fmt = "%Y-%m-%dT%H:%M:%S.000Z"
+    windows = [
+        ((now - timedelta(days=SCHWAB_TXNS_LOOKBACK_DAYS)).strftime(fmt), now.strftime(fmt)),
+        (
+            (now - timedelta(days=2 * SCHWAB_TXNS_LOOKBACK_DAYS)).strftime(fmt),
+            (now - timedelta(days=SCHWAB_TXNS_LOOKBACK_DAYS)).strftime(fmt),
+        ),
+    ]
 
     for alias, account_hash in hashes.items():
         account_type, institution = SCHWAB_ACCOUNTS.get(alias, ("brokerage", "Charles Schwab"))
@@ -424,38 +445,73 @@ def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
         with get_session() as session:
             account_uuid = get_or_create_account(session, alias, account_type, institution)
 
-        with _make_client(token_manager) as client:
-            response = client.get(
-                f"/accounts/{account_hash}/transactions",
-                params={
-                    "startDate": from_date,
-                    "endDate": to_date,
-                    "types": "TRADE,DIVIDEND_OR_INTEREST",
-                },
-            )
-        _handle_schwab_error(response, f"/transactions for {alias}")
+        activities: list[dict[str, Any]] = []
+        fetch_failed = False
+        for from_date, to_date in windows:
+            try:
+                with _make_client(token_manager) as client:
+                    response = client.get(
+                        f"/accounts/{account_hash}/transactions",
+                        params={
+                            "startDate": from_date,
+                            "endDate": to_date,
+                            "types": "TRADE,DIVIDEND_OR_INTEREST",
+                        },
+                    )
+                _handle_schwab_error(response, f"/transactions for {alias}")
+            except SchwabReauthRequired:
+                raise
+            except Exception as exc:
+                # Log and continue — a failed (e.g. empty/older) window shouldn't
+                # abort the whole account, let alone the whole sync.
+                logger.error(
+                    "[schwab_sync] Failed to fetch transactions window %s→%s for %r: %s",
+                    from_date, to_date, alias, exc,
+                )
+                fetch_failed = True
+                continue
+            activities.extend(response.json())
 
-        activities: list[dict[str, Any]] = response.json()
-        row_count = 0
+        if fetch_failed and not activities:
+            continue
 
+        inv_count = 0
+        div_count = 0
         with get_session() as session:
             for activity in activities:
+                # investment_transactions (trades + dividends/interest)
                 mapped = _map_activity_to_investment_txn(activity, str(account_uuid))
-                if mapped is None:
-                    continue
-                existing = (
-                    session.query(InvestmentTransactionRow)
-                    .filter(InvestmentTransactionRow.schwab_activity_id == mapped["schwab_activity_id"])
-                    .first()
-                )
-                if existing is not None:
-                    for key, value in mapped.items():
-                        setattr(existing, key, value)
-                else:
-                    session.add(InvestmentTransactionRow(id=uuid.uuid4(), **mapped))
-                row_count += 1
+                if mapped is not None:
+                    existing = (
+                        session.query(InvestmentTransactionRow)
+                        .filter(InvestmentTransactionRow.schwab_activity_id == mapped["schwab_activity_id"])
+                        .first()
+                    )
+                    if existing is not None:
+                        for key, value in mapped.items():
+                            setattr(existing, key, value)
+                    else:
+                        session.add(InvestmentTransactionRow(id=uuid.uuid4(), **mapped))
+                    inv_count += 1
 
-        logger.info("[schwab_sync] %r — %d investment activities written", alias, row_count)
+                # dividend_transactions (income calendar)
+                div_mapped = _map_dividend_transaction(activity, str(account_uuid))
+                if div_mapped is not None:
+                    if div_mapped.get("schwab_activity_id"):
+                        dup = (
+                            session.query(DividendTransactionRow)
+                            .filter_by(schwab_activity_id=div_mapped["schwab_activity_id"])
+                            .first()
+                        )
+                        if dup is not None:
+                            continue
+                    session.add(DividendTransactionRow(id=uuid.uuid4(), **div_mapped))
+                    div_count += 1
+
+        logger.info(
+            "[schwab_sync] %r — %d investment activities, %d dividend/interest rows written",
+            alias, inv_count, div_count,
+        )
 
 
 def _parse_activity_date(raw: str | None) -> date:
@@ -549,4 +605,72 @@ def _map_activity_to_investment_txn(
         "price": price,
         "amount": net_amount,
         "fees": fees,
+    }
+
+
+def _map_dividend_transaction(txn: dict[str, Any], account_uuid: str) -> dict[str, Any] | None:
+    """
+    Map a Schwab /transactions entry (type=DIVIDEND_OR_INTEREST) to a
+    dividend_transactions row. Returns None for non-dividend activity, for
+    cash-only interest entries with no underlying symbol (nothing to project
+    income for), and for entries we can't confidently parse.
+    """
+    txn_type = str(txn.get("type") or "").upper()
+    if txn_type and txn_type not in DIVIDEND_TRANSACTION_TYPES:
+        return None
+
+    transfer_items = txn.get("transferItems") or []
+    symbol: str | None = None
+    amount: float = 0.0
+    found_amount = False
+
+    for item in transfer_items:
+        instrument = item.get("instrument") or {}
+        asset_type = str(instrument.get("assetType") or "").upper()
+        item_symbol = instrument.get("symbol")
+        if item_symbol and asset_type not in _NON_EQUITY_ASSET_TYPES:
+            symbol = item_symbol
+        raw_amount = item.get("amount")
+        if raw_amount is not None:
+            try:
+                amount += float(raw_amount)
+                found_amount = True
+            except (TypeError, ValueError):
+                pass
+
+    if not found_amount:
+        net_amount = txn.get("netAmount")
+        if net_amount is not None:
+            try:
+                amount = float(net_amount)
+            except (TypeError, ValueError):
+                amount = 0.0
+
+    if not symbol:
+        # Plain cash interest with no underlying holding — nothing to project.
+        return None
+    if amount == 0.0:
+        return None
+
+    date_raw = txn.get("settlementDate") or txn.get("tradeDate") or txn.get("time")
+    if date_raw:
+        try:
+            pay_date = datetime.fromisoformat(str(date_raw).replace("Z", "+00:00")).date()
+        except ValueError:
+            pay_date = date.today()
+    else:
+        pay_date = date.today()
+
+    description = str(txn.get("description") or txn.get("type") or "").upper()
+    activity_type = "interest" if "INTEREST" in description and "DIVIDEND" not in description else "dividend"
+
+    activity_id = txn.get("activityId") or txn.get("transactionId") or txn.get("orderId")
+
+    return {
+        "account_id": account_uuid,
+        "symbol": symbol[:20],
+        "pay_date": pay_date,
+        "amount": abs(amount),
+        "activity_type": activity_type,
+        "schwab_activity_id": str(activity_id) if activity_id is not None else None,
     }

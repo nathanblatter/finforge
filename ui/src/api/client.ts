@@ -32,6 +32,9 @@ import type {
   BudgetsListResponse,
   PriceAlertItem,
   PriceAlertsListResponse,
+  DividendIncomeSummaryResponse,
+  DividendCalendarResponse,
+  DividendHistoryResponse,
   FrontierResponse,
   ClustersResponse,
   IvHvResponse,
@@ -356,6 +359,55 @@ export const api = {
 
   deletePriceAlert: (id: string) =>
     apiFetch<void>(`/price-alerts/${id}`, { method: 'DELETE' }),
+
+  // Dividends & income calendar
+  getDividendIncome: async (): Promise<DividendIncomeSummaryResponse> => {
+    const raw = await apiFetch<DividendIncomeSummaryResponse>('/dividends/income')
+    return {
+      ...raw,
+      portfolio_projected_annual_income: Number(raw.portfolio_projected_annual_income),
+      portfolio_yield_on_cost_pct: raw.portfolio_yield_on_cost_pct == null ? null : Number(raw.portfolio_yield_on_cost_pct),
+      portfolio_cumulative_reinvested: Number(raw.portfolio_cumulative_reinvested),
+      portfolio_cumulative_cash_received: Number(raw.portfolio_cumulative_cash_received),
+      holdings: raw.holdings.map((h) => ({
+        ...h,
+        quantity: Number(h.quantity),
+        per_share_amount: h.per_share_amount == null ? null : Number(h.per_share_amount),
+        projected_annual_income: Number(h.projected_annual_income),
+        yield_on_cost_pct: h.yield_on_cost_pct == null ? null : Number(h.yield_on_cost_pct),
+        cost_basis: h.cost_basis == null ? null : Number(h.cost_basis),
+        cumulative_reinvested: Number(h.cumulative_reinvested),
+        cumulative_cash_received: Number(h.cumulative_cash_received),
+      })),
+    }
+  },
+
+  getDividendCalendar: async (months = 3): Promise<DividendCalendarResponse> => {
+    const raw = await apiFetch<DividendCalendarResponse>(`/dividends/calendar?months=${months}`)
+    return {
+      ...raw,
+      payments: raw.payments.map((p) => ({
+        ...p,
+        expected_amount: Number(p.expected_amount),
+        per_share_amount: p.per_share_amount == null ? null : Number(p.per_share_amount),
+        quantity: Number(p.quantity),
+      })),
+    }
+  },
+
+  getDividendHistory: async (symbol?: string): Promise<DividendHistoryResponse> => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
+    const raw = await apiFetch<DividendHistoryResponse>(`/dividends/history${qs}`)
+    return {
+      transactions: raw.transactions.map((t) => ({
+        ...t,
+        amount: Number(t.amount),
+        quantity_at_payment: t.quantity_at_payment == null ? null : Number(t.quantity_at_payment),
+        per_share_amount: t.per_share_amount == null ? null : Number(t.per_share_amount),
+        reinvest_amount: t.reinvest_amount == null ? null : Number(t.reinvest_amount),
+      })),
+    }
+  },
 
   addDrawdownFavorite: (symbol: string) =>
     apiFetch<DrawdownFavoritesResponse>('/portfolio/favorites', {

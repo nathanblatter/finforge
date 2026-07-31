@@ -205,6 +205,65 @@ export interface PriceAlertsListResponse {
   alerts: PriceAlertItem[]
 }
 
+// Dividend & income calendar
+export interface DividendTransactionItem {
+  id: string
+  account_id: string
+  symbol: string
+  pay_date: string
+  amount: number
+  activity_type: 'dividend' | 'interest'
+  quantity_at_payment: number | null
+  per_share_amount: number | null
+  is_reinvested: boolean
+  reinvest_amount: number | null
+}
+
+export interface DividendHistoryResponse {
+  transactions: DividendTransactionItem[]
+}
+
+export interface DividendHoldingProjection {
+  symbol: string
+  quantity: number
+  per_share_amount: number | null
+  frequency: 'monthly' | 'quarterly' | 'semiannual' | 'annual' | null
+  payments_per_year: number | null
+  projected_annual_income: number
+  yield_on_cost_pct: number | null
+  cost_basis: number | null
+  source: 'market_data' | 'history' | 'insufficient_data'
+  last_payment_date: string | null
+  payment_count: number
+  cumulative_reinvested: number
+  cumulative_cash_received: number
+}
+
+export interface DividendIncomeSummaryResponse {
+  portfolio_projected_annual_income: number
+  portfolio_yield_on_cost_pct: number | null
+  portfolio_cumulative_reinvested: number
+  portfolio_cumulative_cash_received: number
+  holdings: DividendHoldingProjection[]
+  as_of: string
+  has_any_market_data_rates: boolean
+}
+
+export interface DividendCalendarPayment {
+  symbol: string
+  expected_pay_date: string
+  expected_amount: number
+  per_share_amount: number | null
+  quantity: number
+  confidence: 'high' | 'medium'
+}
+
+export interface DividendCalendarResponse {
+  payments: DividendCalendarPayment[]
+  start_date: string
+  end_date: string
+}
+
 export interface GoalSnapshotItem {
   snapshot_date: string
   current_value: number
