@@ -715,6 +715,39 @@ export interface BillsForecastResponse {
   projected_end_balance: number | null
 }
 
+// Cash-flow runway forecast
+export interface RunwaySeriesPoint {
+  date: string
+  balance: number
+  low: number
+  high: number
+}
+
+export interface RunwayCrossing {
+  date: string
+  lead_time_days: number
+}
+
+export interface RunwayResponse {
+  as_of: string
+  days: number
+  checking_balance: number | null
+  floor_amount: number
+  lead_time_days_setting: number
+  daily_discretionary_median: number
+  daily_discretionary_stdev: number
+  series: RunwaySeriesPoint[]
+  events: BillEvent[]
+  crossing: RunwayCrossing | null
+  earliest_risk_crossing: RunwayCrossing | null
+}
+
+export interface CashflowSettingsResponse {
+  floor_amount: number
+  lead_time_days: number
+  updated_at: string
+}
+
 export interface WhatIfPoint {
   ret: number
   vol: number

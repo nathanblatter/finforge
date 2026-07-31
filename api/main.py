@@ -13,6 +13,7 @@ from middleware import register_middleware
 from routers import (
     alerts_router,
     budgets_router,
+    cashflow_router,
     price_alerts_router,
     quant_router,
     tax_router,
@@ -109,6 +110,7 @@ app.include_router(spending_router,    prefix=_PREFIX)
 app.include_router(goals_router,       prefix=_PREFIX)
 app.include_router(alerts_router,      prefix=_PREFIX)
 app.include_router(budgets_router,     prefix=_PREFIX)
+app.include_router(cashflow_router,    prefix=_PREFIX)
 app.include_router(price_alerts_router, prefix=_PREFIX)
 app.include_router(quant_router,       prefix=_PREFIX)
 app.include_router(tax_router,         prefix=_PREFIX)

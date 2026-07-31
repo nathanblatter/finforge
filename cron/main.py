@@ -136,6 +136,19 @@ def check_subscription_hikes() -> None:
         logger.error("check_subscription_hikes failed:\n%s", traceback.format_exc())
 
 
+def check_cashflow_runway() -> None:
+    """Recompute the cash-flow runway projection and alert if the checking
+    balance is on track to cross the configured floor within the lead-time
+    window."""
+    logger.info("Running check_cashflow_runway...")
+    try:
+        from alerts_engine import run_check_cashflow_runway
+        run_check_cashflow_runway()
+        logger.info("check_cashflow_runway completed successfully.")
+    except Exception:
+        logger.error("check_cashflow_runway failed:\n%s", traceback.format_exc())
+
+
 def annual_wrapped() -> None:
     """Generate last year's FinForge Wrapped via the API and text the narrative."""
     logger.info("Running annual_wrapped...")
@@ -416,6 +429,14 @@ def build_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        check_cashflow_runway,
+        trigger=CronTrigger(hour=3, minute=5, timezone=TIMEZONE),
+        id="check_cashflow_runway",
+        name="Cash-Flow Runway Floor Check",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         annual_wrapped,
         trigger=CronTrigger(month=1, day=5, hour=9, minute=0, timezone=TIMEZONE),
         id="annual_wrapped",
@@ -522,6 +543,7 @@ ALL_SYNC_JOBS = {
     "market_regime": market_regime,
     "market_intel": market_intel,
     "check_subscription_hikes": check_subscription_hikes,
+    "check_cashflow_runway": check_cashflow_runway,
     "schwab_token_watchdog": schwab_token_watchdog,
 }
 
