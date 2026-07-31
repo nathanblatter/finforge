@@ -143,6 +143,16 @@ function TaxIcon() {
   )
 }
 
+function DividendIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v10M9.5 9.5a2.5 2.5 0 0 1 2.5-1.5 2.5 2.5 0 0 1 0 5 2.5 2.5 0 0 0 0 5 2.5 2.5 0 0 0 2.5-1.5" />
+    </svg>
+  )
+}
+
 function BellIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
@@ -164,6 +174,7 @@ const staticNavItems = [
   { label: 'Portfolio',   to: '/portfolio',   icon: <BarChartIcon /> },
   { label: 'Tax Center',  to: '/tax',         icon: <TaxIcon /> },
   { label: 'Watchlists',  to: '/watchlists',  icon: <EyeIcon /> },
+  { label: 'Dividends',   to: '/dividends',   icon: <DividendIcon /> },
   { label: 'Goals',       to: '/goals',       icon: <FlagIcon /> },
   { label: 'Chat',        to: '/chat',        icon: <ChatIcon /> },
   { label: 'Insights',    to: '/insights',    icon: <SparkleIcon /> },

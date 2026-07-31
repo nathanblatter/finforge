@@ -28,7 +28,14 @@ from typing import Any
 import httpx
 
 from config import settings
-from db import BalanceRow, HoldingRow, TransactionRow, get_session, get_or_create_account
+from db import (
+    BalanceRow,
+    DividendTransactionRow,
+    HoldingRow,
+    TransactionRow,
+    get_session,
+    get_or_create_account,
+)
 from etl.deidentify import deidentify_schwab_balance, deidentify_schwab_position
 from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
 
@@ -36,6 +43,9 @@ logger = logging.getLogger(__name__)
 
 SCHWAB_API_BASE = "https://api.schwabapi.com/trader/v1"
 SCHWAB_ORDERS_LOOKBACK_DAYS = 90
+# Dividends are infrequent (usually quarterly) — look back far enough to infer
+# cadence and a raise/cut history even for a newly-added holding.
+SCHWAB_DIVIDENDS_LOOKBACK_DAYS = 730
 
 # ---------------------------------------------------------------------------
 # Account config — alias → (account_type, institution)
@@ -123,6 +133,14 @@ def run_schwab_sync() -> None:
         return
     except Exception as exc:
         logger.error("[schwab_sync] Orders sync failed: %s", exc)
+
+    try:
+        sync_schwab_dividend_transactions(token_manager)
+    except SchwabReauthRequired:
+        logger.critical("[schwab_sync] Schwab re-auth required during dividend sync.")
+        return
+    except Exception as exc:
+        logger.error("[schwab_sync] Dividend transaction sync failed: %s", exc)
 
     logger.info("[schwab_sync] Sync complete")
 
@@ -367,4 +385,153 @@ def _map_order_to_transaction(order: dict[str, Any], account_uuid: str) -> dict[
         "is_pending": False,
         "is_fixed_expense": False,
         "notes": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Dividend/interest transactions sync (dividend & income calendar — finforge-5)
+# ---------------------------------------------------------------------------
+#
+# The Schwab Trader API's /orders endpoint (used above) only reports BUY/SELL
+# order activity — dividend and interest cash activity shows up on the
+# separate /accounts/{hash}/transactions endpoint instead, under
+# type=DIVIDEND_OR_INTEREST. We store those as their own dividend_transactions
+# rows (not the generic `transactions` table) since they carry per-share/DRIP
+# metadata that ordinary transactions don't.
+
+DIVIDEND_TRANSACTION_TYPES = {"DIVIDEND_OR_INTEREST", "DIVIDEND", "INTEREST"}
+# Non-equity legs (cash movements) that show up alongside the real instrument leg
+# in a dividend transaction's transferItems — never treat these as "the symbol".
+_NON_EQUITY_ASSET_TYPES = {"CURRENCY", "CASH_EQUIVALENT"}
+
+
+def sync_schwab_dividend_transactions(token_manager: SchwabTokenManager) -> None:
+    """
+    Fetch dividend/interest activity from /accounts/{accountHash}/transactions
+    and upsert into dividend_transactions. Per-share amount, quantity, and DRIP
+    linkage are backfilled separately by cron/dividend_engine.py once the
+    matching holdings snapshot and any reinvestment buy exist.
+    """
+    hashes = token_manager.get_account_hashes()
+    if not hashes:
+        logger.warning("[schwab_sync] No account hashes available — skipping dividend sync")
+        return
+
+    now = datetime.now(timezone.utc)
+    from_date = (now - timedelta(days=SCHWAB_DIVIDENDS_LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    to_date = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    for alias, account_hash in hashes.items():
+        account_type, institution = SCHWAB_ACCOUNTS.get(alias, ("brokerage", "Charles Schwab"))
+
+        with get_session() as session:
+            account_uuid = get_or_create_account(session, alias, account_type, institution)
+
+        try:
+            with _make_client(token_manager) as client:
+                response = client.get(
+                    f"/accounts/{account_hash}/transactions",
+                    params={
+                        "startDate": from_date,
+                        "endDate": to_date,
+                        "types": "DIVIDEND_OR_INTEREST",
+                    },
+                )
+            _handle_schwab_error(response, f"/transactions for {alias}")
+        except SchwabReauthRequired:
+            raise
+        except Exception as exc:
+            # Some Schwab accounts/endpoints reject the `types` filter shape;
+            # log and skip this account rather than aborting the whole sync.
+            logger.error("[schwab_sync] Failed to fetch dividend transactions for %r: %s", alias, exc)
+            continue
+
+        raw_txns: list[dict[str, Any]] = response.json()
+        written = 0
+
+        with get_session() as session:
+            for raw in raw_txns:
+                mapped = _map_dividend_transaction(raw, str(account_uuid))
+                if mapped is None:
+                    continue
+                if mapped.get("schwab_activity_id"):
+                    existing = (
+                        session.query(DividendTransactionRow)
+                        .filter_by(schwab_activity_id=mapped["schwab_activity_id"])
+                        .first()
+                    )
+                    if existing is not None:
+                        continue
+                row = DividendTransactionRow(id=uuid.uuid4(), **mapped)
+                session.add(row)
+                written += 1
+
+        logger.info("[schwab_sync] %r — %d dividend/interest transaction(s) written", alias, written)
+
+
+def _map_dividend_transaction(txn: dict[str, Any], account_uuid: str) -> dict[str, Any] | None:
+    """
+    Map a Schwab /transactions entry (type=DIVIDEND_OR_INTEREST) to a
+    dividend_transactions row. Returns None for cash-only interest entries
+    with no underlying symbol (nothing to project income for) or entries we
+    can't confidently parse.
+    """
+    txn_type = str(txn.get("type") or "").upper()
+    if txn_type and txn_type not in DIVIDEND_TRANSACTION_TYPES:
+        return None
+
+    transfer_items = txn.get("transferItems") or []
+    symbol: str | None = None
+    amount: float = 0.0
+    found_amount = False
+
+    for item in transfer_items:
+        instrument = item.get("instrument") or {}
+        asset_type = str(instrument.get("assetType") or "").upper()
+        item_symbol = instrument.get("symbol")
+        if item_symbol and asset_type not in _NON_EQUITY_ASSET_TYPES:
+            symbol = item_symbol
+        raw_amount = item.get("amount")
+        if raw_amount is not None:
+            try:
+                amount += float(raw_amount)
+                found_amount = True
+            except (TypeError, ValueError):
+                pass
+
+    if not found_amount:
+        net_amount = txn.get("netAmount")
+        if net_amount is not None:
+            try:
+                amount = float(net_amount)
+            except (TypeError, ValueError):
+                amount = 0.0
+
+    if not symbol:
+        # Plain cash interest with no underlying holding — nothing to project.
+        return None
+    if amount == 0.0:
+        return None
+
+    date_raw = txn.get("settlementDate") or txn.get("tradeDate") or txn.get("time")
+    if date_raw:
+        try:
+            pay_date = datetime.fromisoformat(str(date_raw).replace("Z", "+00:00")).date()
+        except ValueError:
+            pay_date = date.today()
+    else:
+        pay_date = date.today()
+
+    description = str(txn.get("description") or txn.get("type") or "").upper()
+    activity_type = "interest" if "INTEREST" in description and "DIVIDEND" not in description else "dividend"
+
+    activity_id = txn.get("activityId") or txn.get("transactionId") or txn.get("orderId")
+
+    return {
+        "account_id": account_uuid,
+        "symbol": symbol[:20],
+        "pay_date": pay_date,
+        "amount": abs(amount),
+        "activity_type": activity_type,
+        "schwab_activity_id": str(activity_id) if activity_id is not None else None,
     }
