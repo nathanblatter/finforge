@@ -406,6 +406,100 @@ DIVIDEND_TRANSACTION_TYPES = {"DIVIDEND_OR_INTEREST", "DIVIDEND", "INTEREST"}
 # in a dividend transaction's transferItems — never treat these as "the symbol".
 _NON_EQUITY_ASSET_TYPES = {"CURRENCY", "CASH_EQUIVALENT"}
 
+SCHWAB_MARKETDATA_BASE = "https://api.schwabapi.com/marketdata/v1"
+
+
+# ---------------------------------------------------------------------------
+# Security-name → symbol resolution for DIVIDEND_OR_INTEREST activities.
+#
+# Real payload shape (observed live): dividend/interest activities carry ONLY a
+# CURRENCY_USD transfer item — the security is identified by the top-level
+# `description`, which is the company NAME from Schwab's activity master
+# (e.g. "ORACLE CORP", "NIKE INC CLASS CLASS B"), not a ticker. We resolve it
+# against quote reference descriptions for the symbols we know about (traded +
+# held). The two masters differ slightly ("CLASS CLASS B" vs "Class B",
+# "INCOME" vs "Inc"), hence normalization + per-token prefix matching.
+# ---------------------------------------------------------------------------
+
+_NAME_PUNCT = str.maketrans({c: " " for c in ".,&'-/()"})
+
+
+def _normalize_security_name(name: str) -> str:
+    """Uppercase, strip punctuation, drop CLASS filler, collapse repeats."""
+    tokens = [t for t in name.upper().translate(_NAME_PUNCT).split() if t != "CLASS"]
+    out: list[str] = []
+    for t in tokens:
+        if not out or out[-1] != t:
+            out.append(t)
+    return " ".join(out)
+
+
+def _tokens_match(a: str, b: str) -> bool:
+    """Same word count and each token pair equal or prefix of the other
+    (handles 'INC' vs 'INCOME'); single-letter tokens must match exactly
+    (share classes: 'A' vs 'C')."""
+    ta, tb = a.split(), b.split()
+    if len(ta) != len(tb):
+        return False
+    for x, y in zip(ta, tb):
+        if x == y:
+            continue
+        if len(x) == 1 or len(y) == 1:
+            return False
+        if not (x.startswith(y) or y.startswith(x)):
+            return False
+    return True
+
+
+def _resolve_symbol(description: str, name_map: dict[str, str]) -> str | None:
+    """Resolve an activity description (company name) to a ticker."""
+    if not description:
+        return None
+    norm = _normalize_security_name(description)
+    if norm in name_map:
+        return name_map[norm]
+    candidates = {sym for key, sym in name_map.items() if _tokens_match(norm, key)}
+    if len(candidates) == 1:
+        return candidates.pop()
+    return None
+
+
+def _fetch_symbol_name_map(token_manager: SchwabTokenManager, symbols: set[str]) -> dict[str, str]:
+    """Fetch quote reference descriptions for `symbols` and build
+    {normalized company name: symbol}. Ambiguous names are dropped."""
+    symbols = {s for s in symbols if s and not s.startswith("CURRENCY")}
+    if not symbols:
+        return {}
+    try:
+        access_token = token_manager.get_valid_access_token()
+        response = httpx.get(
+            f"{SCHWAB_MARKETDATA_BASE}/quotes",
+            params={"symbols": ",".join(sorted(symbols)), "fields": "reference"},
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        quotes: dict[str, Any] = response.json()
+    except Exception as exc:
+        logger.error("[schwab_sync] Quote reference lookup failed (%d symbols): %s", len(symbols), exc)
+        return {}
+
+    name_map: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for symbol, quote in quotes.items():
+        desc = (quote.get("reference") or {}).get("description")
+        if not desc:
+            continue
+        key = _normalize_security_name(desc)
+        if key in name_map and name_map[key] != symbol:
+            ambiguous.add(key)
+        else:
+            name_map[key] = symbol
+    for key in ambiguous:
+        logger.warning("[schwab_sync] Ambiguous security name %r — dropped from resolver", key)
+        name_map.pop(key, None)
+    return name_map
+
 
 def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
     """
@@ -475,12 +569,32 @@ def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
         if fetch_failed and not activities:
             continue
 
+        # Build the name→symbol resolver for this account's dividend activity:
+        # candidate symbols come from trades in this batch plus current holdings.
+        candidates: set[str] = set()
+        for activity in activities:
+            for item in activity.get("transferItems") or []:
+                instrument = item.get("instrument") or {}
+                if (instrument.get("assetType") or "").upper() in _SECURITY_ASSET_TYPES:
+                    sym = instrument.get("symbol")
+                    if sym:
+                        candidates.add(sym)
+        with get_session() as session:
+            held = (
+                session.query(HoldingRow.symbol)
+                .filter(HoldingRow.account_id == account_uuid)
+                .distinct()
+                .all()
+            )
+            candidates.update(s for (s,) in held)
+        name_map = _fetch_symbol_name_map(token_manager, candidates)
+
         inv_count = 0
         div_count = 0
         with get_session() as session:
             for activity in activities:
                 # investment_transactions (trades + dividends/interest)
-                mapped = _map_activity_to_investment_txn(activity, str(account_uuid))
+                mapped = _map_activity_to_investment_txn(activity, str(account_uuid), name_map)
                 if mapped is not None:
                     existing = (
                         session.query(InvestmentTransactionRow)
@@ -495,7 +609,7 @@ def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
                     inv_count += 1
 
                 # dividend_transactions (income calendar)
-                div_mapped = _map_dividend_transaction(activity, str(account_uuid))
+                div_mapped = _map_dividend_transaction(activity, str(account_uuid), name_map)
                 if div_mapped is not None:
                     if div_mapped.get("schwab_activity_id"):
                         dup = (
@@ -533,7 +647,7 @@ def _classify_dividend_or_interest(description: str) -> str:
 
 
 def _map_activity_to_investment_txn(
-    activity: dict[str, Any], account_uuid: str
+    activity: dict[str, Any], account_uuid: str, name_map: dict[str, str] | None = None
 ) -> dict[str, Any] | None:
     """
     Map a Schwab /transactions activity to an investment_transactions row.
@@ -582,7 +696,12 @@ def _map_activity_to_investment_txn(
         # Cash out (negative net) = BUY; cash in = SELL.
         action = "BUY" if net_amount < 0 else "SELL"
     else:
-        txn_type = _classify_dividend_or_interest(description)
+        # Real payloads carry an explicit qualifiedDividend flag; fall back to
+        # description keywords when absent.
+        if activity.get("qualifiedDividend"):
+            txn_type = "DIVIDEND_QUALIFIED"
+        else:
+            txn_type = _classify_dividend_or_interest(description)
         action = None
         quantity = None
         price = None
@@ -591,6 +710,10 @@ def _map_activity_to_investment_txn(
             candidate = description.split("~")[-1].strip().upper()
             if candidate and len(candidate) <= 20 and " " not in candidate:
                 symbol = candidate
+        if symbol is None and name_map:
+            # Observed live shape: description is the company NAME (no ticker
+            # anywhere in the activity) — resolve via quote reference names.
+            symbol = _resolve_symbol(description, name_map)
 
     return {
         "account_id": account_uuid,
@@ -608,7 +731,9 @@ def _map_activity_to_investment_txn(
     }
 
 
-def _map_dividend_transaction(txn: dict[str, Any], account_uuid: str) -> dict[str, Any] | None:
+def _map_dividend_transaction(
+    txn: dict[str, Any], account_uuid: str, name_map: dict[str, str] | None = None
+) -> dict[str, Any] | None:
     """
     Map a Schwab /transactions entry (type=DIVIDEND_OR_INTEREST) to a
     dividend_transactions row. Returns None for non-dividend activity, for
@@ -645,6 +770,11 @@ def _map_dividend_transaction(txn: dict[str, Any], account_uuid: str) -> dict[st
                 amount = float(net_amount)
             except (TypeError, ValueError):
                 amount = 0.0
+
+    if not symbol and name_map:
+        # Real dividend activities carry only a CURRENCY leg — the security is
+        # named (not tickered) in the description. Resolve name → symbol.
+        symbol = _resolve_symbol(str(txn.get("description") or ""), name_map)
 
     if not symbol:
         # Plain cash interest with no underlying holding — nothing to project.
