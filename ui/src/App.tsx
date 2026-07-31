@@ -20,6 +20,7 @@ const PortfolioAnalysisPage  = lazy(() => import('./pages/PortfolioAnalysisPage'
 const ReimbursementPage      = lazy(() => import('./pages/ReimbursementPage'))
 const ReportsPage            = lazy(() => import('./pages/ReportsPage'))
 const BudgetsPage            = lazy(() => import('./pages/BudgetsPage'))
+const RunwayPage             = lazy(() => import('./pages/RunwayPage'))
 const SubscriptionsPage      = lazy(() => import('./pages/SubscriptionsPage'))
 const InsightsPage           = lazy(() => import('./pages/InsightsPage'))
 const MerchantPage           = lazy(() => import('./pages/MerchantPage'))
@@ -65,6 +66,9 @@ function AuthenticatedRoutes() {
         } />
         <Route path="budgets" element={
           <Suspense fallback={<PageLoader />}><BudgetsPage /></Suspense>
+        } />
+        <Route path="runway" element={
+          <Suspense fallback={<PageLoader />}><RunwayPage /></Suspense>
         } />
         <Route path="subscriptions" element={
           <Suspense fallback={<PageLoader />}><SubscriptionsPage /></Suspense>

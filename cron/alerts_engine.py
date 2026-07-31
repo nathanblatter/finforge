@@ -13,6 +13,7 @@ from sqlalchemy import extract
 
 from db import (
     BudgetRow,
+    CashflowSettingsRow,
     MarketDataCacheRow,
     NotificationRow,
     PriceAlertRow,
@@ -261,3 +262,80 @@ def run_check_subscription_hikes() -> None:
                 pass
 
         logger.info("check_subscription_hikes: %d hike alert(s) fired", fired)
+
+
+# ---------------------------------------------------------------------------
+# Cash-flow runway floor
+# ---------------------------------------------------------------------------
+
+RUNWAY_HORIZON_DAYS = 90
+
+
+def run_check_cashflow_runway() -> None:
+    """Project the checking balance out RUNWAY_HORIZON_DAYS and, if the
+    conservative (low-band) projection is on track to cross the configured
+    floor within the user's configured lead time, fire one alert stating the
+    date and days of lead time. Re-fires only if the predicted crossing date
+    changes (a fresh forecast run), mirroring the subscription-hike
+    per-value dedup convention."""
+    from cashflow_forecast import compute_runway
+
+    with get_session() as session:
+        settings = session.query(CashflowSettingsRow).order_by(CashflowSettingsRow.created_at.asc()).first()
+        if settings is None:
+            logger.info("check_cashflow_runway: no settings configured, skipping")
+            return
+
+        floor = float(settings.floor_amount)
+        lead_time_days = settings.lead_time_days
+
+        result = compute_runway(session, days=RUNWAY_HORIZON_DAYS)
+        if result["checking_balance"] is None:
+            logger.info("check_cashflow_runway: no checking balance data, skipping")
+            return
+
+        crossing_date = None
+        for point in result["series"]:
+            if point["low"] < floor:
+                crossing_date = point["date"]
+                break
+
+        if crossing_date is None:
+            logger.info("check_cashflow_runway: no floor crossing predicted within %d days", RUNWAY_HORIZON_DAYS)
+            return
+
+        today = date.today()
+        lead_time_until_crossing = (crossing_date - today).days
+        if lead_time_until_crossing > lead_time_days:
+            logger.info(
+                "check_cashflow_runway: crossing predicted %s but outside lead-time window (%d > %d)",
+                crossing_date, lead_time_until_crossing, lead_time_days,
+            )
+            return
+
+        date_tag = crossing_date.isoformat()
+        existing = (
+            session.query(NotificationRow)
+            .filter(
+                NotificationRow.source == "cashflow",
+                NotificationRow.title == "Checking",
+                NotificationRow.alert_type == "floor_risk",
+                NotificationRow.message.like(f"%{date_tag}%"),
+            )
+            .first()
+        )
+        if existing is not None:
+            logger.info("check_cashflow_runway: already alerted for crossing on %s", date_tag)
+            return
+
+        message = (
+            f"Checking balance is projected to drop below your ${floor:,.2f} floor around "
+            f"{date_tag} ({lead_time_until_crossing} day(s) from now)."
+        )
+        _add_notification(session, "cashflow", "Checking", "floor_risk", message)
+        logger.info("check_cashflow_runway: alert created for crossing on %s", date_tag)
+        try:
+            from notify import queue_notification
+            queue_notification("cashflow_runway", f"🪫 {message}", priority="high")
+        except Exception:
+            pass

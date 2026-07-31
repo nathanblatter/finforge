@@ -514,3 +514,14 @@ class MarketRegimeRow(Base):
     trend_60d: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
     sma20_vs_sma50: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class CashflowSettingsRow(Base):
+    __tablename__ = "cashflow_settings"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    floor_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    lead_time_days: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

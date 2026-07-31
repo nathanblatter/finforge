@@ -53,6 +53,8 @@ import type {
   SearchResponse,
   MerchantDetailResponse,
   BillsForecastResponse,
+  RunwayResponse,
+  CashflowSettingsResponse,
   WhatIfResponse,
   TaxSummaryResponse,
   RealizedLotsResponse,
@@ -475,6 +477,18 @@ export const api = {
 
   getBillsForecast: (days = 30) =>
     apiFetch<BillsForecastResponse>(`/spending/bills-forecast?days=${days}`),
+
+  getRunway: (days = 90) =>
+    apiFetch<RunwayResponse>(`/cashflow/runway?days=${days}`),
+
+  getCashflowSettings: () =>
+    apiFetch<CashflowSettingsResponse>('/cashflow/settings'),
+
+  updateCashflowSettings: (floorAmount: number, leadTimeDays: number) =>
+    apiFetch<CashflowSettingsResponse>('/cashflow/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ floor_amount: floorAmount, lead_time_days: leadTimeDays }),
+    }),
 
   runWhatIf: (weights: Record<string, number>) =>
     apiFetch<WhatIfResponse>('/quant/whatif', {
