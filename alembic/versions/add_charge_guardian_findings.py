@@ -1,7 +1,7 @@
 """Add charge_guardian_findings table.
 
 Revision ID: 6397796c1c71
-Revises: c7e5a3d1b948
+Revises: d3f8a1c2b569
 Create Date: 2026-07-30
 """
 
@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
 # revision identifiers, used by Alembic.
 revision = "6397796c1c71"
-down_revision = "c7e5a3d1b948"
+down_revision = "d3f8a1c2b569"
 branch_labels = None
 depends_on = None
 

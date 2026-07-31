@@ -1,7 +1,7 @@
 """Add financial_health_snapshots table.
 
 Revision ID: d3f8a1c2b569
-Revises: c7e5a3d1b948
+Revises: d4f6a8c1e935
 Create Date: 2026-07-30
 """
 
@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = "d3f8a1c2b569"
-down_revision = "c7e5a3d1b948"
+down_revision = "d4f6a8c1e935"
 branch_labels = None
 depends_on = None
 

@@ -1,7 +1,7 @@
 """Add dividend_transactions table (dividend & income calendar feature).
 
 Revision ID: d3e9a1c5b642
-Revises: c7e5a3d1b948
+Revises: d8f6b4c2a059
 Create Date: 2026-07-30
 """
 
@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = "d3e9a1c5b642"
-down_revision = "c7e5a3d1b948"
+down_revision = "d8f6b4c2a059"
 branch_labels = None
 depends_on = None
 

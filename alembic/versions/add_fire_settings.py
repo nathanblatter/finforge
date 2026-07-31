@@ -1,7 +1,7 @@
 """Add fire_settings table (FIRE / retirement projector assumptions).
 
 Revision ID: d4f6a8c1e935
-Revises: c7e5a3d1b948
+Revises: f2a9c6e4d135
 Create Date: 2026-07-30
 """
 
@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = "d4f6a8c1e935"
-down_revision = "c7e5a3d1b948"
+down_revision = "f2a9c6e4d135"
 branch_labels = None
 depends_on = None
 

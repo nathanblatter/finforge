@@ -1,7 +1,7 @@
 """Add cashflow_settings table for the cash-flow runway forecast.
 
 Revision ID: f2a9c6e4d135
-Revises: c7e5a3d1b948
+Revises: d3e9a1c5b642
 Create Date: 2026-07-30
 """
 
@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = "f2a9c6e4d135"
-down_revision = "c7e5a3d1b948"
+down_revision = "d3e9a1c5b642"
 branch_labels = None
 depends_on = None
 
