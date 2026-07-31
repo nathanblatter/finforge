@@ -511,6 +511,108 @@ export interface MonteCarloResponse {
   prob_hit_ever?: number
 }
 
+// ---------------------------------------------------------------------------
+// FIRE / retirement projector
+// ---------------------------------------------------------------------------
+
+export interface FireSettings {
+  current_age: number | null
+  target_retirement_age: number | null
+  expected_annual_spend: number | null
+  withdrawal_rate: number
+}
+
+export interface FireSettingsUpdate {
+  current_age?: number
+  target_retirement_age?: number
+  expected_annual_spend?: number
+  withdrawal_rate?: number
+}
+
+export interface FireNetWorth {
+  net_worth: number
+  invested_assets: number
+  cash: number
+  debt: number
+  as_of: string | null
+}
+
+export interface FireSavings {
+  window_months: number
+  income_annualized: number
+  expenses_annualized: number
+  annual_savings: number
+  savings_rate: number
+}
+
+export interface FireCoast {
+  current_age: number | null
+  target_retirement_age: number | null
+  coast_number: number | null
+  progress_pct: number | null
+  coast_reached_age: number | null
+}
+
+export interface FireSummaryResponse {
+  net_worth: FireNetWorth
+  savings: FireSavings
+  expected_annual_return: number
+  annual_retirement_spend: number
+  withdrawal_rate: number
+  fi_number: number
+  current_invested_assets: number
+  years_to_fi: number | null
+  coast: FireCoast
+  allocation_symbols: string[]
+}
+
+export interface FireMonteCarloRequest {
+  max_years?: number
+  n_sims?: number
+  seed?: number
+}
+
+export interface FireMonteCarloResponse {
+  target_value: number
+  initial_value: number
+  annual_contribution: number
+  n_sims: number
+  max_years: number
+  years_to_fi_p10: number
+  years_to_fi_p50: number
+  years_to_fi_p90: number
+  prob_never_by_cap: number
+  symbols: string[]
+  fi_number: number
+}
+
+export interface SwrRequest {
+  rates?: number[]
+  horizons?: number[]
+  n_sims?: number
+  seed?: number
+}
+
+export interface SwrRow {
+  withdrawal_rate: number
+  years: number
+  success_probability: number
+}
+
+export interface SwrDecumulationPathPoint {
+  year: number
+  p10: number
+  p50: number
+  p90: number
+}
+
+export interface SwrResponse {
+  initial_value: number
+  table: SwrRow[]
+  max_safe_rate_by_horizon: Record<string, { rate_90: number; rate_95: number }>
+  symbols: string[]
+}
+
 export interface ForecastCategory {
   category: string
   forecast: number
