@@ -3,6 +3,7 @@ from routers.kpi import router as kpi_router
 from routers.auth import router as auth_router
 from routers.balances import router as balances_router
 from routers.chat import router as chat_router
+from routers.financial_health import router as financial_health_router
 from routers.goals import router as goals_router
 from routers.health import router as health_router
 from routers.insights import router as insights_router
@@ -42,6 +43,7 @@ __all__ = [
     "auth_router",
     "balances_router",
     "chat_router",
+    "financial_health_router",
     "goals_router",
     "health_router",
     "insights_router",

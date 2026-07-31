@@ -21,6 +21,7 @@ const more = [
   { label: 'FIRE', to: '/fire' },
   { label: 'Chat', to: '/chat' },
   { label: 'Insights', to: '/insights' },
+  { label: 'Health Score', to: '/health-score' },
   { label: 'Settings', to: '/settings' },
 ]
 

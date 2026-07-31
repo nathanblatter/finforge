@@ -68,6 +68,8 @@ import type {
   FireMonteCarloResponse,
   SwrRequest,
   SwrResponse,
+  FinancialHealthResponse,
+  FinancialHealthHistoryResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -527,6 +529,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ weights }),
     }),
+
+  getFinancialHealth: () =>
+    apiFetch<FinancialHealthResponse>('/financial-health/current'),
+
+  getFinancialHealthHistory: (months = 24) =>
+    apiFetch<FinancialHealthHistoryResponse>(`/financial-health/history?months=${months}`),
 
   getWrapped: (year?: number, regenerate = false) => {
     const q = new URLSearchParams()

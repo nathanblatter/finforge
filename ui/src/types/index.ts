@@ -770,6 +770,52 @@ export interface WrappedResponse {
   cached: boolean
 }
 
+export interface FinancialHealthComponent {
+  score: number
+  value: number | null
+  unit: string
+  label: string
+  detail: string
+  weight: number
+}
+
+export interface FinancialHealthSensitivityItem {
+  component: string
+  weight: number
+  current_score: number
+  potential_gain: number
+}
+
+export interface FinancialHealthResponse {
+  as_of: string
+  composite_score: number
+  components: {
+    savings_rate: FinancialHealthComponent
+    emergency_fund: FinancialHealthComponent
+    expense_volatility: FinancialHealthComponent
+    allocation_drift: FinancialHealthComponent
+  }
+  sensitivity: FinancialHealthSensitivityItem[]
+  top_lever: string | null
+}
+
+export interface FinancialHealthSnapshotItem {
+  snapshot_date: string
+  composite_score: number
+  savings_rate_score: number
+  savings_rate_value: number | null
+  emergency_fund_score: number
+  emergency_fund_months: number | null
+  expense_volatility_score: number
+  expense_volatility_cv: number | null
+  allocation_drift_score: number
+  allocation_drift_value: number | null
+}
+
+export interface FinancialHealthHistoryResponse {
+  snapshots: FinancialHealthSnapshotItem[]
+}
+
 export interface CoveredCall {
   strike: number
   expiration_days: number

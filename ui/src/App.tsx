@@ -23,6 +23,7 @@ const BudgetsPage            = lazy(() => import('./pages/BudgetsPage'))
 const RunwayPage             = lazy(() => import('./pages/RunwayPage'))
 const SubscriptionsPage      = lazy(() => import('./pages/SubscriptionsPage'))
 const InsightsPage           = lazy(() => import('./pages/InsightsPage'))
+const FinancialHealthPage    = lazy(() => import('./pages/FinancialHealthPage'))
 const MerchantPage           = lazy(() => import('./pages/MerchantPage'))
 const TaxCenterPage          = lazy(() => import('./pages/TaxCenterPage'))
 const DividendsPage          = lazy(() => import('./pages/DividendsPage'))
@@ -76,6 +77,9 @@ function AuthenticatedRoutes() {
         } />
         <Route path="insights" element={
           <Suspense fallback={<PageLoader />}><InsightsPage /></Suspense>
+        } />
+        <Route path="health-score" element={
+          <Suspense fallback={<PageLoader />}><FinancialHealthPage /></Suspense>
         } />
         <Route path="merchant" element={
           <Suspense fallback={<PageLoader />}><MerchantPage /></Suspense>
