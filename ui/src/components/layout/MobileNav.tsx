@@ -18,6 +18,7 @@ const more = [
   { label: 'Tax Center', to: '/tax' },
   { label: 'Watchlists', to: '/watchlists' },
   { label: 'Goals', to: '/goals' },
+  { label: 'FIRE', to: '/fire' },
   { label: 'Chat', to: '/chat' },
   { label: 'Insights', to: '/insights' },
   { label: 'Settings', to: '/settings' },

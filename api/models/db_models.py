@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Text,
@@ -782,6 +783,27 @@ class Budget(Base):
 
     def __repr__(self) -> str:
         return f"<Budget category={self.category!r} limit={self.monthly_limit!r}>"
+
+
+class FireSettings(Base):
+    """Singleton user-configurable assumptions for the FIRE/retirement
+    projector. Single-user app — one row is created lazily on first read
+    (see services.fire.get_or_create_settings) and updated in place."""
+
+    __tablename__ = "fire_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    current_age: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_retirement_age: Mapped[int] = mapped_column(Integer, nullable=False, default=65)
+    expected_annual_spend: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    withdrawal_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=Decimal("0.04"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<FireSettings target_age={self.target_retirement_age!r} withdrawal_rate={self.withdrawal_rate!r}>"
 
 
 class PriceAlert(Base):

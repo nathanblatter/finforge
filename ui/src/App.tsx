@@ -26,6 +26,7 @@ const InsightsPage           = lazy(() => import('./pages/InsightsPage'))
 const MerchantPage           = lazy(() => import('./pages/MerchantPage'))
 const TaxCenterPage          = lazy(() => import('./pages/TaxCenterPage'))
 const DividendsPage          = lazy(() => import('./pages/DividendsPage'))
+const FirePage                = lazy(() => import('./pages/FirePage'))
 
 function PageLoader() {
   return (
@@ -102,6 +103,9 @@ function AuthenticatedRoutes() {
         } />
         <Route path="dividends" element={
           <Suspense fallback={<PageLoader />}><DividendsPage /></Suspense>
+        } />
+        <Route path="fire" element={
+          <Suspense fallback={<PageLoader />}><FirePage /></Suspense>
         } />
         <Route path="alerts" element={
           <Suspense fallback={<PageLoader />}><AlertsPage /></Suspense>

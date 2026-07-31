@@ -61,6 +61,13 @@ import type {
   TaxEstimateResponse,
   TaxEstimateSettings,
   Form1099Response,
+  FireSettings,
+  FireSettingsUpdate,
+  FireSummaryResponse,
+  FireMonteCarloRequest,
+  FireMonteCarloResponse,
+  SwrRequest,
+  SwrResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -459,6 +466,31 @@ export const api = {
 
   getSectors: () =>
     apiFetch<SectorsResponse>('/quant/sectors'),
+
+  // FIRE / retirement projector
+  getFireSettings: () =>
+    apiFetch<FireSettings>('/fire/settings'),
+
+  updateFireSettings: (body: FireSettingsUpdate) =>
+    apiFetch<FireSettings>('/fire/settings', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  getFireSummary: () =>
+    apiFetch<FireSummaryResponse>('/fire/summary'),
+
+  runFireMonteCarlo: (body: FireMonteCarloRequest = {}) =>
+    apiFetch<FireMonteCarloResponse>('/fire/montecarlo', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  runFireSwr: (body: SwrRequest = {}) =>
+    apiFetch<SwrResponse>('/fire/swr', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   getDailySpending: (months = 6) =>
     apiFetch<DailySpendingResponse>(`/spending/daily?months=${months}`),

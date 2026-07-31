@@ -26,6 +26,7 @@ from routers.quant import router as quant_router
 from routers.tax import router as tax_router
 from routers.bug_report import router as bug_report_router
 from routers.dividends import router as dividends_router
+from routers.fire import router as fire_router
 
 __all__ = [
     "alerts_router",
@@ -33,6 +34,7 @@ __all__ = [
     "budgets_router",
     "cashflow_router",
     "dividends_router",
+    "fire_router",
     "price_alerts_router",
     "quant_router",
     "tax_router",

@@ -348,6 +348,32 @@ async def fetch_options_chain(symbol: str) -> Optional[dict]:
 # Monte Carlo projection
 # ---------------------------------------------------------------------------
 
+def bootstrap_monthly_returns(
+    portfolio_returns: np.ndarray,
+    n_sims: int,
+    months: int,
+    rng: np.random.Generator,
+    block: int = 21,
+) -> np.ndarray:
+    """Block-bootstrap monthly return paths from a daily-return series.
+
+    Shared engine behind every accumulation/decumulation Monte Carlo in the
+    quant + FIRE modules: each simulated month is a resampled `block`-day
+    window compounded together, so fat tails and autocorrelation in the
+    actual return history are preserved rather than assuming normality.
+
+    Returns an (n_sims, months) array of monthly returns.
+    """
+    n_days = len(portfolio_returns)
+    if n_days < block + 1:
+        raise ValueError("Insufficient return history for simulation")
+
+    starts = rng.integers(0, n_days - block, size=(n_sims, months))
+    log1p = np.log1p(portfolio_returns)
+    cum = np.concatenate([[0.0], np.cumsum(log1p)])
+    return np.expm1(cum[starts + block] - cum[starts])  # (n_sims, months)
+
+
 def monte_carlo_projection(
     portfolio_returns: np.ndarray,
     initial_value: float,
@@ -364,18 +390,8 @@ def monte_carlo_projection(
     rather than assuming normality.
     """
     rng = np.random.default_rng(seed)
-    n_days = len(portfolio_returns)
-    block = 21
     months = years * 12
-
-    if n_days < block + 1:
-        raise ValueError("Insufficient return history for simulation")
-
-    # Pre-build all monthly returns: pick random block starts, compound each block
-    starts = rng.integers(0, n_days - block, size=(n_sims, months))
-    log1p = np.log1p(portfolio_returns)
-    cum = np.concatenate([[0.0], np.cumsum(log1p)])
-    monthly = np.expm1(cum[starts + block] - cum[starts])  # (n_sims, months)
+    monthly = bootstrap_monthly_returns(portfolio_returns, n_sims, months, rng)
 
     values = np.full(n_sims, initial_value, dtype=float)
     ever_hit = np.zeros(n_sims, dtype=bool)

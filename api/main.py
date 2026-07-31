@@ -22,6 +22,7 @@ from routers import (
     bug_report_router,
     chat_router,
     dividends_router,
+    fire_router,
     goals_router,
     health_router,
     insights_router,
@@ -114,6 +115,7 @@ app.include_router(budgets_router,     prefix=_PREFIX)
 app.include_router(cashflow_router,    prefix=_PREFIX)
 app.include_router(price_alerts_router, prefix=_PREFIX)
 app.include_router(quant_router,       prefix=_PREFIX)
+app.include_router(fire_router,        prefix=_PREFIX)
 app.include_router(tax_router,         prefix=_PREFIX)
 app.include_router(investments_router, prefix=_PREFIX)
 app.include_router(insights_router,    prefix=_PREFIX)
