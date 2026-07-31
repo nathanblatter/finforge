@@ -160,6 +160,28 @@ def annual_wrapped() -> None:
         logger.error("annual_wrapped failed:\n%s", traceback.format_exc())
 
 
+def financial_health_snapshot() -> None:
+    """Compute this month's financial health score via the API and store it
+    as a snapshot (mirrors annual_wrapped's pattern of calling the API rather
+    than re-implementing scoring logic in the cron container). The API also
+    runs the >10-point month-over-month score-drop alert as part of this call."""
+    logger.info("Running financial_health_snapshot...")
+    try:
+        import httpx
+
+        api_key = os.environ.get("API_KEY", "")
+        r = httpx.post(
+            "http://finforge-api:8000/api/v1/financial-health/snapshot",
+            headers={"X-API-Key": api_key},
+            timeout=120,
+        )
+        r.raise_for_status()
+        score = r.json().get("composite_score")
+        logger.info("financial_health_snapshot completed successfully — score=%s", score)
+    except Exception:
+        logger.error("financial_health_snapshot failed:\n%s", traceback.format_exc())
+
+
 def market_regime() -> None:
     """Classify the current market regime from SPY price action."""
     logger.info("Running market_regime...")
@@ -424,6 +446,14 @@ def build_scheduler() -> BlockingScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        financial_health_snapshot,
+        trigger=CronTrigger(day=1, hour=4, minute=0, timezone=TIMEZONE),
+        id="financial_health_snapshot",
+        name="Financial Health Score Snapshot",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         spending_anomalies,
         trigger=CronTrigger(hour=2, minute=50, timezone=TIMEZONE),
         id="spending_anomalies",
@@ -523,6 +553,7 @@ ALL_SYNC_JOBS = {
     "market_intel": market_intel,
     "check_subscription_hikes": check_subscription_hikes,
     "schwab_token_watchdog": schwab_token_watchdog,
+    "financial_health_snapshot": financial_health_snapshot,
 }
 
 

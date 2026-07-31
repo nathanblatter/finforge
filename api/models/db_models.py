@@ -805,3 +805,36 @@ class MarketRegime(Base):
 
     def __repr__(self) -> str:
         return f"<MarketRegime {self.regime_date!r} {self.regime!r}>"
+
+
+class FinancialHealthSnapshot(Base):
+    """Monthly composite financial-health score snapshot (0-100), with a
+    transparent 0-100 sub-score + raw value per component. Written once per
+    calendar month by the financial_health_snapshot cron job (normalized to
+    the 1st of the month) so a trend line can be rendered over history."""
+
+    __tablename__ = "financial_health_snapshots"
+    __table_args__ = (
+        UniqueConstraint("snapshot_date", name="uq_financial_health_snapshot_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    composite_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+
+    savings_rate_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    savings_rate_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2), nullable=True)  # %
+
+    emergency_fund_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    emergency_fund_months: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2), nullable=True)  # months
+
+    expense_volatility_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    expense_volatility_cv: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)  # coefficient of variation
+
+    allocation_drift_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    allocation_drift_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)  # avg abs drift %
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<FinancialHealthSnapshot {self.snapshot_date!r} score={self.composite_score!r}>"
