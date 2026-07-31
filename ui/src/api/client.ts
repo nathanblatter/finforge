@@ -52,6 +52,10 @@ import type {
   BillsForecastResponse,
   WhatIfResponse,
   TaxSummaryResponse,
+  RealizedLotsResponse,
+  TaxEstimateResponse,
+  TaxEstimateSettings,
+  Form1099Response,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -82,6 +86,25 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(`API error ${res.status}: ${res.statusText}`)
   }
   return res.json() as Promise<T>
+}
+
+async function downloadCsv(path: string, fallbackName: string): Promise<void> {
+  const token = localStorage.getItem(TOKEN_KEY)
+  const headers: Record<string, string> = { 'X-API-Key': API_KEY }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch(`${BASE}${path}`, { headers })
+  if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const cd = res.headers.get('content-disposition')
+  const match = cd?.match(/filename="?(.+?)"?$/)
+  a.download = match?.[1] || fallbackName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 export const api = {
@@ -500,4 +523,28 @@ export const api = {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   },
+
+  getRealizedLots: () =>
+    apiFetch<RealizedLotsResponse>('/tax/lots'),
+
+  getTaxEstimates: (settings: TaxEstimateSettings) => {
+    const params = new URLSearchParams({
+      prior_year_tax: String(settings.prior_year_tax),
+      prior_year_agi: String(settings.prior_year_agi),
+      filing_status: settings.filing_status,
+      marginal_rate: String(settings.marginal_rate),
+      ltcg_rate: String(settings.ltcg_rate),
+      set_aside: String(settings.set_aside),
+    })
+    return apiFetch<TaxEstimateResponse>(`/tax/estimates?${params}`)
+  },
+
+  getForm1099: () =>
+    apiFetch<Form1099Response>('/tax/form1099'),
+
+  exportTaxRealized: () =>
+    downloadCsv('/tax/realized.csv', `finforge_realized_${new Date().getFullYear()}.csv`),
+
+  exportForm1099: () =>
+    downloadCsv('/tax/form1099.csv', `finforge_1099_reconciliation_${new Date().getFullYear()}.csv`),
 }

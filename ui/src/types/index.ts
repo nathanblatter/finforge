@@ -760,3 +760,134 @@ export interface TaxSummaryResponse {
   realized_activity: RealizedActivityItem[]
   realized_is_partial: boolean
 }
+
+export interface RealizedLot {
+  symbol: string
+  acquired_date: string | null
+  sold_date: string
+  quantity: number | null
+  proceeds: number
+  basis: number | null
+  gain: number | null
+  term: 'short' | 'long' | 'unknown'
+  wash_sale: boolean
+  disallowed_loss: number
+}
+
+export interface RealizedTotals {
+  short_term_gain: number
+  short_term_loss: number
+  long_term_gain: number
+  long_term_loss: number
+  net_short_term: number
+  net_long_term: number
+  net_realized: number
+  proceeds: number
+  basis: number
+  wash_sale_disallowed: number
+  unknown_basis_proceeds: number
+  lot_count: number
+  unknown_basis_lots: number
+}
+
+export interface RealizedSymbolGroup {
+  symbol: string
+  lot_count: number
+  proceeds: number
+  basis: number | null
+  gain: number | null
+  net_short_term: number
+  net_long_term: number
+  wash_sale_disallowed: number
+  has_unknown_basis: boolean
+  lots: RealizedLot[]
+}
+
+export interface RealizedLotsResponse {
+  tax_year: number
+  source: 'schwab_transactions' | 'orders_fallback' | 'none'
+  coverage_start: string | null
+  totals: RealizedTotals
+  symbols: RealizedSymbolGroup[]
+}
+
+export interface QuarterEstimate {
+  quarter: string
+  period: string
+  due_date: string
+  required_cumulative: number
+  required_quarter: number
+  status: 'past' | 'due_next' | 'upcoming'
+}
+
+export interface TaxEstimateSettings {
+  prior_year_tax: number
+  prior_year_agi: number
+  filing_status: 'single' | 'married_joint' | 'married_separate' | 'head_of_household'
+  marginal_rate: number
+  ltcg_rate: number
+  set_aside: number
+}
+
+export interface TaxEstimateResponse {
+  tax_year: number
+  as_of: string
+  filing_status: string
+  marginal_rate: number
+  ltcg_rate: number
+  prior_year_tax: number
+  prior_year_agi: number
+  safe_harbor_pct: number
+  ytd_net_short_term: number
+  ytd_net_long_term: number
+  ytd_ordinary_dividends: number
+  ytd_qualified_dividends: number
+  ytd_interest: number
+  est_tax_short_term: number
+  est_tax_long_term: number
+  est_tax_dividends: number
+  est_tax_interest: number
+  est_total_tax: number
+  safe_harbor_prior_year: number
+  safe_harbor_current_year: number
+  required_annual: number
+  set_aside: number
+  remaining: number
+  quarters: QuarterEstimate[]
+  notes: string[]
+}
+
+export interface Form1099SymbolRow {
+  symbol: string
+  lot_count: number
+  proceeds: number
+  basis: number | null
+  wash_sale_disallowed: number
+  gain: number | null
+  net_short_term: number
+  net_long_term: number
+  ordinary_dividends: number
+  qualified_dividends: number
+  has_unknown_basis: boolean
+}
+
+export interface Form1099Response {
+  tax_year: number
+  source: string
+  coverage_start: string | null
+  total_proceeds: number
+  total_basis: number
+  total_wash_sale_disallowed: number
+  short_term_proceeds: number
+  short_term_basis: number
+  short_term_gain: number
+  long_term_proceeds: number
+  long_term_basis: number
+  long_term_gain: number
+  unknown_basis_proceeds: number
+  total_ordinary_dividends: number
+  total_qualified_dividends: number
+  total_interest: number
+  symbols: Form1099SymbolRow[]
+  notes: string[]
+}

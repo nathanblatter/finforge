@@ -840,3 +840,140 @@ class TaxSummaryResponse(BaseModel):
     realized_ytd_sells: int
     realized_activity: list[RealizedActivityItem]
     realized_is_partial: bool = True  # orders sync only covers a trailing window
+
+
+class RealizedLot(BaseModel):
+    """One closed tax lot (or proceeds-only sell when basis is unknown)."""
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    acquired_date: Optional[date] = None  # None → basis predates synced history
+    sold_date: date
+    quantity: Optional[Decimal] = None
+    proceeds: Decimal
+    basis: Optional[Decimal] = None
+    gain: Optional[Decimal] = None
+    term: str  # short | long | unknown
+    wash_sale: bool = False
+    disallowed_loss: Decimal = Decimal("0.00")
+
+
+class RealizedTotalsModel(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    short_term_gain: Decimal
+    short_term_loss: Decimal  # positive magnitude
+    long_term_gain: Decimal
+    long_term_loss: Decimal  # positive magnitude
+    net_short_term: Decimal
+    net_long_term: Decimal
+    net_realized: Decimal
+    proceeds: Decimal
+    basis: Decimal
+    wash_sale_disallowed: Decimal
+    unknown_basis_proceeds: Decimal
+    lot_count: int
+    unknown_basis_lots: int
+
+
+class RealizedSymbolGroup(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    lot_count: int
+    proceeds: Decimal
+    basis: Optional[Decimal] = None
+    gain: Optional[Decimal] = None
+    net_short_term: Decimal
+    net_long_term: Decimal
+    wash_sale_disallowed: Decimal
+    has_unknown_basis: bool
+    lots: list[RealizedLot]
+
+
+class RealizedLotsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    tax_year: int
+    # 'schwab_transactions' (lot-level) or 'orders_fallback' (proceeds-only)
+    source: str
+    coverage_start: Optional[date] = None  # earliest synced activity backing lots
+    totals: RealizedTotalsModel
+    symbols: list[RealizedSymbolGroup]
+
+
+class QuarterEstimate(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    quarter: str  # Q1..Q4
+    period: str  # e.g. "Jan 1 – Mar 31"
+    due_date: date
+    required_cumulative: Decimal
+    required_quarter: Decimal
+    status: str  # past | due_next | upcoming
+
+
+class TaxEstimateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    tax_year: int
+    as_of: date
+    filing_status: str
+    marginal_rate: Decimal
+    ltcg_rate: Decimal
+    prior_year_tax: Decimal
+    prior_year_agi: Decimal
+    safe_harbor_pct: Decimal  # 1.00 or 1.10 of prior-year tax
+    # YTD investment income picture
+    ytd_net_short_term: Decimal
+    ytd_net_long_term: Decimal
+    ytd_ordinary_dividends: Decimal
+    ytd_qualified_dividends: Decimal
+    ytd_interest: Decimal
+    # Estimated tax on that income
+    est_tax_short_term: Decimal
+    est_tax_long_term: Decimal
+    est_tax_dividends: Decimal
+    est_tax_interest: Decimal
+    est_total_tax: Decimal
+    # Safe-harbor math
+    safe_harbor_prior_year: Decimal  # safe_harbor_pct × prior_year_tax
+    safe_harbor_current_year: Decimal  # 90% × est_total_tax (annualized = YTD here)
+    required_annual: Decimal  # the lesser of the two safe harbors
+    set_aside: Decimal
+    remaining: Decimal
+    quarters: list[QuarterEstimate]
+    notes: list[str]
+
+
+class Form1099SymbolRow(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str
+    lot_count: int
+    proceeds: Decimal
+    basis: Optional[Decimal] = None
+    wash_sale_disallowed: Decimal
+    gain: Optional[Decimal] = None
+    net_short_term: Decimal
+    net_long_term: Decimal
+    ordinary_dividends: Decimal
+    qualified_dividends: Decimal
+    has_unknown_basis: bool
+
+
+class Form1099Response(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+    tax_year: int
+    source: str  # schwab_transactions | orders_fallback
+    coverage_start: Optional[date] = None
+    # 1099-B
+    total_proceeds: Decimal
+    total_basis: Decimal
+    total_wash_sale_disallowed: Decimal
+    short_term_proceeds: Decimal
+    short_term_basis: Decimal
+    short_term_gain: Decimal
+    long_term_proceeds: Decimal
+    long_term_basis: Decimal
+    long_term_gain: Decimal
+    unknown_basis_proceeds: Decimal
+    # 1099-DIV / 1099-INT
+    total_ordinary_dividends: Decimal
+    total_qualified_dividends: Decimal
+    total_interest: Decimal
+    symbols: list[Form1099SymbolRow]
+    notes: list[str]

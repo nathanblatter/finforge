@@ -280,6 +280,55 @@ class Holding(Base):
         )
 
 
+class InvestmentTransaction(Base):
+    """Lot-level Schwab account activity: trades, dividends, and interest.
+
+    Synced by the schwab_sync cron from /accounts/{hash}/transactions (up to a
+    1-year window). Unlike the orders-derived rows in `transactions`, these
+    carry quantity and price, which enables per-lot realized gain/loss
+    computation, dividend tracking, and 1099 reconciliation in the Tax Center.
+    """
+
+    __tablename__ = "investment_transactions"
+    __table_args__ = (
+        UniqueConstraint("schwab_activity_id", name="uq_investment_txn_activity"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    schwab_activity_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # TRADE / DIVIDEND / INTEREST / QUALIFIED_DIVIDEND / ...
+    txn_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    action: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # BUY / SELL for trades
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    settlement_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 6), nullable=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    # Signed net amount: negative for buys (cash out), positive for sells/dividends.
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    fees: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<InvestmentTransaction type={self.txn_type!r} symbol={self.symbol!r} "
+            f"date={self.trade_date!r} amount={self.amount!r}>"
+        )
+
+
 class Goal(Base):
     """A financial goal tracked over time."""
 

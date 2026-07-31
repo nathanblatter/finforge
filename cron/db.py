@@ -133,6 +133,31 @@ class HoldingRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class InvestmentTransactionRow(Base):
+    """Lot-level Schwab activity (trades / dividends / interest) — see api models."""
+
+    __tablename__ = "investment_transactions"
+    __table_args__ = (
+        UniqueConstraint("schwab_activity_id", name="uq_investment_txn_activity"),
+        {"extend_existing": True},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    schwab_activity_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    txn_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    action: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    settlement_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 6), nullable=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    fees: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class GoalRow(Base):
     __tablename__ = "goals"
     __table_args__ = {"extend_existing": True}
