@@ -132,10 +132,26 @@ export const api = {
     url?: string
     meta?: Record<string, unknown>
   }) =>
-    apiFetch<{ ok: boolean }>('/bug-report', {
+    apiFetch<{ ok: boolean; item_id: string | null }>('/bug-report', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  uploadBugScreenshots: async (itemId: string, files: File[]) => {
+    // Multipart upload — let the browser set the Content-Type boundary.
+    const token = localStorage.getItem(TOKEN_KEY)
+    const headers: Record<string, string> = { 'X-API-Key': API_KEY }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const form = new FormData()
+    for (const f of files) form.append('files', f, f.name)
+    const res = await fetch(`${BASE}/bug-report/${itemId}/screenshots`, {
+      method: 'POST',
+      headers,
+      body: form,
+    })
+    if (!res.ok) throw new Error(`API error ${res.status}: ${res.statusText}`)
+    return res.json() as Promise<{ ok: boolean; attachments: unknown[] }>
+  },
 
   getSummary: () =>
     apiFetch<SummaryResponse>('/summary'),

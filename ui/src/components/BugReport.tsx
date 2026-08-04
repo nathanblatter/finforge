@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 
 type Status = 'idle' | 'sending' | 'sent' | 'error'
@@ -9,6 +9,15 @@ const SEVERITIES = [
   { value: 'high', label: 'High — hard to use' },
   { value: 'urgent', label: 'Urgent — completely broken' },
 ]
+
+const MAX_SHOTS = 4
+const MAX_SHOT_BYTES = 8 * 1024 * 1024 // 8MB, matches the server cap
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+interface Shot {
+  file: File
+  previewUrl: string
+}
 
 function BugIcon({ className = '' }: { className?: string }) {
   return (
@@ -26,20 +35,71 @@ export default function BugReport() {
   const [severity, setSeverity] = useState('med')
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState('')
+  const [warning, setWarning] = useState('')
+  const [shots, setShots] = useState<Shot[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const shotsRef = useRef<Shot[]>([])
+  shotsRef.current = shots
+
+  const addFiles = useCallback((incoming: File[]) => {
+    if (!incoming.length) return
+    setError('')
+    const accepted: Shot[] = []
+    let rejection = ''
+    let count = shotsRef.current.length
+    for (const file of incoming) {
+      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        rejection = 'Only PNG, JPEG, WebP, or GIF images can be attached.'
+        continue
+      }
+      if (file.size > MAX_SHOT_BYTES) {
+        rejection = 'Each screenshot must be under 8MB.'
+        continue
+      }
+      if (count + accepted.length >= MAX_SHOTS) {
+        rejection = `Up to ${MAX_SHOTS} screenshots per report.`
+        break
+      }
+      accepted.push({ file, previewUrl: URL.createObjectURL(file) })
+    }
+    if (accepted.length) setShots((prev) => [...prev, ...accepted])
+    if (rejection) setError(rejection)
+  }, [])
+
+  function removeShot(index: number) {
+    setShots((prev) => {
+      const next = [...prev]
+      const [removed] = next.splice(index, 1)
+      if (removed) URL.revokeObjectURL(removed.previewUrl)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close()
     }
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+        f.type.startsWith('image/')
+      )
+      if (files.length) {
+        e.preventDefault()
+        addFiles(files)
+      }
+    }
     document.addEventListener('keydown', onKey)
+    document.addEventListener('paste', onPaste)
     const id = window.setTimeout(() => textareaRef.current?.focus(), 40)
     return () => {
       document.removeEventListener('keydown', onKey)
+      document.removeEventListener('paste', onPaste)
       window.clearTimeout(id)
     }
-  }, [open])
+  }, [open, addFiles])
 
   function close() {
     setOpen(false)
@@ -49,6 +109,12 @@ export default function BugReport() {
       setSeverity('med')
       setStatus('idle')
       setError('')
+      setWarning('')
+      setDragOver(false)
+      setShots((prev) => {
+        prev.forEach((s) => URL.revokeObjectURL(s.previewUrl))
+        return []
+      })
     }, 200)
   }
 
@@ -61,8 +127,10 @@ export default function BugReport() {
     }
     setStatus('sending')
     setError('')
+    setWarning('')
+    let created: { ok: boolean; item_id: string | null }
     try {
-      await api.submitBugReport({
+      created = await api.submitBugReport({
         message: trimmed,
         severity,
         url: window.location.href,
@@ -72,12 +140,33 @@ export default function BugReport() {
           userAgent: navigator.userAgent,
         },
       })
-      setStatus('sent')
-      window.setTimeout(close, 1300)
     } catch {
       setStatus('error')
       setError('Could not send. Please try again.')
+      return
     }
+
+    // The report is filed at this point — a screenshot failure is soft.
+    if (shots.length) {
+      if (created.item_id) {
+        try {
+          await api.uploadBugScreenshots(created.item_id, shots.map((s) => s.file))
+        } catch {
+          setWarning('Report filed, but the screenshots could not be uploaded.')
+        }
+      } else {
+        setWarning('Report filed, but the screenshots could not be uploaded.')
+      }
+    }
+    setStatus('sent')
+    window.setTimeout(close, shots.length ? 2200 : 1300)
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    if (status === 'sending' || status === 'sent') return
+    addFiles(Array.from(e.dataTransfer.files))
   }
 
   return (
@@ -107,8 +196,17 @@ export default function BugReport() {
             role="dialog"
             aria-modal="true"
             aria-label="Report a bug"
-            className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-2xl
-                       motion-safe:animate-[toast-in_.2s_ease-out]"
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDragOver(true)
+            }}
+            onDragLeave={(e) => {
+              if (e.currentTarget === e.target) setDragOver(false)
+            }}
+            onDrop={onDrop}
+            className={`w-full max-w-md rounded-2xl border bg-slate-800 p-6 shadow-2xl
+                        motion-safe:animate-[toast-in_.2s_ease-out]
+                        ${dragOver ? 'border-sky-500 ring-2 ring-sky-500/30' : 'border-slate-700'}`}
           >
             <div className="flex items-start gap-3">
               <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400">
@@ -123,12 +221,17 @@ export default function BugReport() {
             </div>
 
             {status === 'sent' ? (
-              <div className="mt-6 flex items-center gap-2 rounded-lg bg-emerald-500/10 px-4 py-6 text-emerald-400">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                     strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-                <span className="text-sm font-medium">Thanks — your report was filed.</span>
+              <div className="mt-6 space-y-3">
+                <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-4 py-6 text-emerald-400">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                       strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  <span className="text-sm font-medium">Thanks — your report was filed.</span>
+                </div>
+                {warning && (
+                  <p className="rounded-lg bg-amber-500/10 px-4 py-3 text-xs text-amber-400">{warning}</p>
+                )}
               </div>
             ) : (
               <>
@@ -162,6 +265,63 @@ export default function BugReport() {
                     <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
+
+                <span className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Screenshots <span className="font-normal normal-case text-slate-500">(optional, up to {MAX_SHOTS})</span>
+                </span>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ALLOWED_IMAGE_TYPES.join(',')}
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    addFiles(Array.from(e.target.files ?? []))
+                    e.target.value = ''
+                  }}
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {shots.map((shot, i) => (
+                    <div key={shot.previewUrl} className="group relative">
+                      <img
+                        src={shot.previewUrl}
+                        alt={shot.file.name}
+                        className="h-16 w-16 rounded-lg border border-slate-700 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeShot(i)}
+                        aria-label={`Remove ${shot.file.name}`}
+                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full
+                                   bg-slate-700 text-slate-300 shadow transition hover:bg-rose-500 hover:text-white
+                                   focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                             strokeLinecap="round" className="h-3 w-3" aria-hidden="true">
+                          <path d="M6 6l12 12M18 6 6 18" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                  {shots.length < MAX_SHOTS && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex h-16 w-16 flex-col items-center justify-center gap-0.5 rounded-lg border
+                                 border-dashed border-slate-600 text-slate-500 transition hover:border-sky-500
+                                 hover:text-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                           strokeLinecap="round" className="h-5 w-5" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      <span className="text-[10px] font-medium">Add</span>
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Drag & drop or paste images here — PNG, JPEG, WebP, or GIF up to 8MB each.
+                </p>
 
                 <div className="mt-5 flex items-center gap-3">
                   <span className="mr-auto text-xs text-rose-400">{error}</span>
