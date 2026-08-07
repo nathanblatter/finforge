@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from integrations.schwab_sync import (  # noqa: E402
     _map_activity_to_investment_txn,
     _map_dividend_transaction,
+    _map_order_to_transaction,
     _normalize_security_name,
     _resolve_symbol,
     _tokens_match,
@@ -230,3 +231,52 @@ def test_dividend_fanout_skips_unresolvable_cash_interest():
 def test_trade_activity_never_becomes_dividend_row():
     act = trade_activity("NVDA", 1.0, 196.425, -196.43)
     assert _map_dividend_transaction(act, ACCOUNT, NAME_MAP) is None
+
+
+# ---------------------------------------------------------------------------
+# finforge-26: filled-order → transactions-row mapper must carry a STABLE
+# synthetic id so repeated nightly syncs update the same row instead of
+# re-inserting fresh uuids (which manufactured "duplicate" stock transactions).
+# ---------------------------------------------------------------------------
+
+
+def filled_order(symbol, qty, price, instruction="BUY", order_id=12345):
+    order = {
+        "enteredTime": "2026-07-24T14:30:00.000Z",
+        "price": price,
+        "orderLegCollection": [
+            {"instrument": {"symbol": symbol}, "quantity": qty, "instruction": instruction}
+        ],
+    }
+    if order_id is not None:
+        order["orderId"] = order_id
+    return order
+
+
+def test_order_mapper_uses_stable_synthetic_id_from_order_id():
+    txn = _map_order_to_transaction(filled_order("AAPL", 10, 200.0, order_id=999), ACCOUNT)
+    assert txn is not None
+    assert txn["plaid_transaction_id"] == "schwab_order:999"
+    assert txn["category"] == "Investment Transfer"
+    assert txn["merchant_name"] == "AAPL"
+
+
+def test_order_mapper_id_is_deterministic_across_calls():
+    """Same order twice → same key, so the idempotent upsert updates one row."""
+    o = filled_order("MSFT", 5, 400.0, order_id=777)
+    assert (
+        _map_order_to_transaction(o, ACCOUNT)["plaid_transaction_id"]
+        == _map_order_to_transaction(o, ACCOUNT)["plaid_transaction_id"]
+    )
+
+
+def test_order_mapper_distinct_orders_get_distinct_ids():
+    a = _map_order_to_transaction(filled_order("AAPL", 10, 200.0, order_id=1), ACCOUNT)
+    b = _map_order_to_transaction(filled_order("AAPL", 10, 200.0, order_id=2), ACCOUNT)
+    assert a["plaid_transaction_id"] != b["plaid_transaction_id"]
+
+
+def test_order_mapper_falls_back_to_composite_key_without_order_id():
+    txn = _map_order_to_transaction(filled_order("TSLA", 3, 250.0, order_id=None), ACCOUNT)
+    assert txn["plaid_transaction_id"].startswith("schwab_order:TSLA:")
+    assert txn["plaid_transaction_id"] != "schwab_order:None"
