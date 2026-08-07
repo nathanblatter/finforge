@@ -13,7 +13,7 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.2.0
 pyotp==2.9.0
 qrcode[pil]==7.4.2
-anthropic==0.34.2
+anthropic==0.120.2
 plaid-python==39.0.0
 numpy==2.2.4
 scikit-learn==1.6.1
