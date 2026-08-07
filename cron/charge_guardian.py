@@ -553,7 +553,18 @@ def run_charge_guardian() -> None:
             logger.info("[charge_guardian] No transactions in lookback window — skipping")
             return
 
-        debit_txns = [t for t in txns if t.amount is not None and t.amount > 0]
+        # Exclude investment activity (Schwab stock/ETF orders land in the main
+        # transactions table with category="Investment Transfer" and the ticker as
+        # merchant_name). Without this the duplicate detector treats same-symbol
+        # trades within the window as duplicate charges (finforge-26). None-safe:
+        # a real spending row never has this category.
+        debit_txns = [
+            t
+            for t in txns
+            if t.amount is not None
+            and t.amount > 0
+            and t.category != "Investment Transfer"
+        ]
 
         recurring_merchants = find_recurring_merchants(
             [t for t in debit_txns if t.date >= today - timedelta(days=SUBSCRIPTION_LOOKBACK_DAYS)]

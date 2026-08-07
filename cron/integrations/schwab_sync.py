@@ -340,8 +340,21 @@ def sync_schwab_orders(token_manager: SchwabTokenManager) -> None:
                 txn = _map_order_to_transaction(order, str(account_uuid))
                 if txn is None:
                     continue
-                row = TransactionRow(id=uuid.uuid4(), **txn)
-                session.merge(row)  # use merge for idempotency on Schwab orders (no plaid_transaction_id)
+                # Idempotency: Schwab orders carry a stable synthetic key in
+                # plaid_transaction_id ("schwab_order:<orderId>"). Update in place
+                # if we've seen it, else insert. Without this the old uuid4()+merge
+                # re-inserted the entire lookback window as new rows every night,
+                # manufacturing "duplicate" stock transactions (finforge-26).
+                existing = (
+                    session.query(TransactionRow)
+                    .filter(TransactionRow.plaid_transaction_id == txn["plaid_transaction_id"])
+                    .first()
+                )
+                if existing is not None:
+                    for key, value in txn.items():
+                        setattr(existing, key, value)
+                else:
+                    session.add(TransactionRow(id=uuid.uuid4(), **txn))
                 txn_count += 1
 
         logger.info("[schwab_sync] %r — %d investment transactions written", alias, txn_count)
@@ -362,6 +375,19 @@ def _map_order_to_transaction(order: dict[str, Any], account_uuid: str) -> dict[
     instrument = leg.get("instrument", {})
     symbol: str | None = instrument.get("symbol")
 
+    # Stable synthetic id so repeated syncs update the same row instead of
+    # inserting a fresh uuid every night (finforge-26). Prefer Schwab's orderId;
+    # fall back to a composite when it's missing so we still don't duplicate.
+    order_id = order.get("orderId")
+    if order_id is not None:
+        synthetic_id = f"schwab_order:{order_id}"
+    else:
+        synthetic_id = (
+            f"schwab_order:{symbol or 'UNK'}:"
+            f"{order.get('enteredTime') or order.get('closeTime') or ''}:"
+            f"{leg.get('instruction', '')}:{leg.get('quantity', 0)}"
+        )
+
     order_date_raw = order.get("enteredTime") or order.get("closeTime")
     if order_date_raw:
         try:
@@ -377,7 +403,7 @@ def _map_order_to_transaction(order: dict[str, Any], account_uuid: str) -> dict[
 
     return {
         "account_id": account_uuid,
-        "plaid_transaction_id": None,  # Schwab orders have no Plaid ID
+        "plaid_transaction_id": synthetic_id,  # stable dedupe key (finforge-26)
         "date": txn_date,
         "amount": amount,
         "merchant_name": symbol[:255] if symbol else "Unknown",
