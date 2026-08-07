@@ -5,7 +5,6 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
-import anthropic
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
@@ -13,9 +12,9 @@ from sqlalchemy.orm import Session
 from auth import require_auth
 from config import settings
 from database import get_db
-from dependencies import verify_api_key
 from models.db_models import Account, Balance, ChatMessage, Holding, MarketDataCache, PortfolioAnalysis, Transaction, Goal, GoalSnapshot, Watchlist
 from schemas.schemas import ChatHistoryItem, ChatHistoryResponse, ChatRequest, ChatResponse
+from services.agent import run_agent
 
 logger = logging.getLogger("finforge.api.chat")
 
@@ -286,23 +285,23 @@ def chat(
 
     username = token_payload.get("username", "User")
     user_id = token_payload.get("sub")
-    system_prompt = _build_chat_context(db, username, user_id=user_id)
 
-    # Build messages: history + new user message
-    messages = [{"role": m.role, "content": m.content} for m in payload.history]
-    messages.append({"role": "user", "content": payload.message})
+    # Agentic path: the model pulls data on demand via read tools (see
+    # services/agent) instead of a fixed context blob, so it can answer questions
+    # the old single-shot chat couldn't (tax, dividends, runway, FIRE, drill-downs).
+    history = [{"role": m.role, "content": m.content} for m in payload.history]
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=messages,
-        )
-        reply = response.content[0].text
+        result = run_agent(db, username, payload.message, history=history)
+        reply = result["reply"]
+        if result["steps"]:
+            logger.info(
+                "[chat] agent used %d tool call(s) over %d round(s): %s",
+                len(result["steps"]), result["rounds"],
+                ", ".join(s["tool"] for s in result["steps"]),
+            )
     except Exception as exc:
-        logger.error("Claude chat API error: %s", exc, exc_info=True)
+        logger.error("Agent chat error: %s", exc, exc_info=True)
         return ChatResponse(reply="I encountered an error processing your request. Please try again.")
 
     # Persist the exchange so it survives a page refresh. Best-effort: a storage
