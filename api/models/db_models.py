@@ -997,3 +997,58 @@ class FinancialHealthSnapshot(Base):
 
     def __repr__(self) -> str:
         return f"<FinancialHealthSnapshot {self.snapshot_date!r} score={self.composite_score!r}>"
+
+
+class Trip(Base):
+    """A trip: a date range + destination. Spending transactions inside the
+    window are pulled in automatically (checking/credit-card accounts,
+    transfers excluded); TripTransactionOverride rows add pre-trip bookings
+    or kick out unrelated charges."""
+
+    __tablename__ = "trips"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    destination: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    budget: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    overrides: Mapped[list["TripTransactionOverride"]] = relationship(
+        "TripTransactionOverride", back_populates="trip", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Trip {self.name!r} {self.start_date!r}..{self.end_date!r}>"
+
+
+class TripTransactionOverride(Base):
+    """Manual include (pre-trip flight booked months earlier) or exclude
+    (recurring bill that happened to post mid-trip) of a transaction for a
+    trip, on top of the automatic date-window pull."""
+
+    __tablename__ = "trip_transaction_overrides"
+    __table_args__ = (
+        UniqueConstraint("trip_id", "transaction_id", name="uq_trip_txn_override"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("trips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    transaction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    included: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    trip: Mapped["Trip"] = relationship("Trip", back_populates="overrides")
+    transaction: Mapped["Transaction"] = relationship("Transaction")
+
+    def __repr__(self) -> str:
+        return f"<TripTransactionOverride trip={self.trip_id!r} txn={self.transaction_id!r} included={self.included!r}>"

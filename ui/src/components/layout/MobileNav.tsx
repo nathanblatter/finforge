@@ -13,6 +13,7 @@ const more = [
   { label: 'Budgets', to: '/budgets' },
   { label: 'Subscriptions', to: '/subscriptions' },
   { label: 'Reimburse', to: '/reimbursement' },
+  { label: 'Trips', to: '/trips' },
   { label: 'Reports', to: '/reports' },
   { label: 'Investments', to: '/investments' },
   { label: 'Tax Center', to: '/tax' },
