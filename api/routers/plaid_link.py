@@ -60,6 +60,29 @@ def _save_plaid_tokens(tokens: dict) -> None:
     os.replace(tmp, str(path))
 
 
+PLAID_CURSORS_FILE = "/secrets/plaid_cursors.json"
+
+
+def _drop_sync_cursor(old_item_id: str | None) -> None:
+    """Plaid /transactions/sync cursors are Item-scoped. On re-link the Item
+    is replaced, so the old Item's cursor must be dropped or every future
+    sync fails with INVALID_FIELD (cursor not associated with access_token)."""
+    if not old_item_id:
+        return
+    path = Path(PLAID_CURSORS_FILE)
+    try:
+        cursors = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        return
+    if old_item_id in cursors:
+        cursors.pop(old_item_id)
+        tmp = str(path) + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(cursors, f, indent=2)
+        os.replace(tmp, str(path))
+        logger.info("Dropped stale Plaid sync cursor for replaced item %s", old_item_id)
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -142,6 +165,7 @@ def exchange_public_token(
     # Save access token keyed by institution
     tokens = _load_plaid_tokens()
     inst = payload.institution_name.lower().replace(" ", "_")
+    old_item_id = tokens.get(inst, {}).get("item_id")
 
     account_names = []
     for acct in payload.accounts:
@@ -156,6 +180,8 @@ def exchange_public_token(
         "accounts": payload.accounts,
     }
     _save_plaid_tokens(tokens)
+    if old_item_id and old_item_id != item_id:
+        _drop_sync_cursor(old_item_id)
 
     logger.info("Plaid token saved for %s — %d accounts", payload.institution_name, len(payload.accounts))
 
