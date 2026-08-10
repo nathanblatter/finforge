@@ -71,6 +71,12 @@ import type {
   SwrResponse,
   FinancialHealthResponse,
   FinancialHealthHistoryResponse,
+  Trip,
+  TripsListResponse,
+  TripDetailResponse,
+  TripCreateBody,
+  TripUpdateBody,
+  TripCandidatesResponse,
 } from '../types'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
@@ -519,6 +525,42 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  // Trip tracker
+  getTrips: () =>
+    apiFetch<TripsListResponse>('/trips'),
+
+  createTrip: (body: TripCreateBody) =>
+    apiFetch<Trip>('/trips', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getTrip: (id: string) =>
+    apiFetch<TripDetailResponse>(`/trips/${id}`),
+
+  updateTrip: (id: string, body: TripUpdateBody) =>
+    apiFetch<Trip>(`/trips/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  deleteTrip: (id: string) =>
+    apiFetch<void>(`/trips/${id}`, { method: 'DELETE' }),
+
+  setTripTransaction: (tripId: string, transactionId: string, included: boolean) =>
+    apiFetch<{ trip_id: string; transaction_id: string; included: boolean }>(
+      `/trips/${tripId}/transactions/${transactionId}`,
+      { method: 'PUT', body: JSON.stringify({ included }) },
+    ),
+
+  clearTripTransaction: (tripId: string, transactionId: string) =>
+    apiFetch<void>(`/trips/${tripId}/transactions/${transactionId}`, { method: 'DELETE' }),
+
+  getTripCandidates: (tripId: string, q?: string) =>
+    apiFetch<TripCandidatesResponse>(
+      `/trips/${tripId}/candidates${q ? `?q=${encodeURIComponent(q)}` : ''}`,
+    ),
 
   getDailySpending: (months = 6) =>
     apiFetch<DailySpendingResponse>(`/spending/daily?months=${months}`),

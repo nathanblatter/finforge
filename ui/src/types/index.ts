@@ -1158,3 +1158,95 @@ export interface Form1099Response {
   symbols: Form1099SymbolRow[]
   notes: string[]
 }
+
+// ---------------------------------------------------------------------------
+// Trip tracker
+// ---------------------------------------------------------------------------
+
+export interface Trip {
+  id: string
+  name: string
+  destination: string | null
+  start_date: string
+  end_date: string
+  budget: number | null
+  notes: string | null
+  status: 'upcoming' | 'active' | 'completed'
+}
+
+export interface TripListItem extends Trip {
+  total_spend: number
+  transaction_count: number
+  budget_pct: number | null
+}
+
+export interface TripsListResponse {
+  trips: TripListItem[]
+}
+
+export interface TripTransaction {
+  id: string
+  date: string
+  amount: number
+  merchant_name: string | null
+  category: string | null
+  subcategory: string | null
+  account_alias: string
+  is_pending: boolean
+  source: 'auto' | 'manual' | 'candidate'
+}
+
+export interface TripCategoryBreakdown {
+  category: string
+  amount: number
+  count: number
+}
+
+export interface TripDaySpend {
+  date: string
+  amount: number
+}
+
+export interface TripSummary {
+  total_spend: number
+  pre_trip_spend: number
+  in_window_spend: number
+  transaction_count: number
+  trip_days: number
+  days_elapsed: number
+  daily_avg: number | null
+  projected_total: number | null
+  budget: number | null
+  budget_remaining: number | null
+  budget_pct: number | null
+  by_category: TripCategoryBreakdown[]
+  by_day: TripDaySpend[]
+}
+
+export interface TripDetailResponse extends Trip {
+  summary: TripSummary
+  transactions: TripTransaction[]
+}
+
+export interface TripCreateBody {
+  name: string
+  destination?: string
+  start_date: string
+  end_date: string
+  budget?: number
+  notes?: string
+}
+
+export interface TripUpdateBody {
+  name?: string
+  destination?: string
+  start_date?: string
+  end_date?: string
+  budget?: number
+  clear_budget?: boolean
+  notes?: string
+}
+
+export interface TripCandidatesResponse {
+  candidates: TripTransaction[]
+}

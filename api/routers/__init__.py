@@ -28,9 +28,11 @@ from routers.tax import router as tax_router
 from routers.bug_report import router as bug_report_router
 from routers.dividends import router as dividends_router
 from routers.fire import router as fire_router
+from routers.trips import router as trips_router
 
 __all__ = [
     "alerts_router",
+    "trips_router",
     "bug_report_router",
     "budgets_router",
     "cashflow_router",
