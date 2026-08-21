@@ -225,18 +225,33 @@ def detect_duplicate_charges(
 # Detector 2: new subscriptions (also catches most trial conversions)
 # ---------------------------------------------------------------------------
 
+NEW_SUB_HISTORY_BUFFER_DAYS = 60
+
+
 def detect_new_subscriptions(txns: Iterable[TxnLike]) -> list[Finding]:
     """Any merchant that currently qualifies as recurring — flag its
     first-ever charge as a new subscription. `dedupe_key` is merchant-only
     (no date/period component) so this fires exactly once per merchant, ever,
-    regardless of how many times the cron job re-evaluates it."""
-    groups = group_by_merchant(txns)
+    regardless of how many times the cron job re-evaluates it.
+
+    A merchant whose earliest charge sits within NEW_SUB_HISTORY_BUFFER_DAYS
+    of the oldest transaction we can see is skipped: its history plausibly
+    predates the data window, so calling it "new" would fabricate a start
+    date (finforge-35/F7 — every pre-existing subscription used to fire a
+    false alert)."""
+    all_txns = list(txns)
+    if not all_txns:
+        return []
+    window_start = min(t.date for t in all_txns)
+    groups = group_by_merchant(all_txns)
     findings: list[Finding] = []
 
     for merchant_key, ts in groups.items():
         if not is_recurring_group(ts):
             continue
         first = min(ts, key=lambda t: t.date)
+        if (first.date - window_start).days < NEW_SUB_HISTORY_BUFFER_DAYS:
+            continue  # can't distinguish "new" from "older than our data"
         merchant_display = _display_merchant(ts)
         med = median(float(t.amount) for t in ts)
         detail = (
@@ -578,9 +593,18 @@ def run_charge_guardian() -> None:
         all_findings += detect_new_subscriptions(
             [t for t in debit_txns if t.date >= today - timedelta(days=SUBSCRIPTION_LOOKBACK_DAYS)]
         )
-        all_findings += detect_trial_conversions(
-            [t for t in debit_txns if t.date >= today - timedelta(days=TRIAL_LOOKBACK_DAYS)]
-        )
+        # Trial detector gets its own input including $0.00 card-verification
+        # holds — the most common trial pattern — which the amount > 0 debit
+        # filter above would strip (finforge-35/F5).
+        trial_txns = [
+            t
+            for t in txns
+            if t.amount is not None
+            and t.amount >= 0
+            and t.category != "Investment Transfer"
+            and t.date >= today - timedelta(days=TRIAL_LOOKBACK_DAYS)
+        ]
+        all_findings += detect_trial_conversions(trial_txns)
         all_findings += detect_gray_charge_creep(
             [t for t in debit_txns if t.date >= today - timedelta(days=GRAY_CHARGE_LOOKBACK_DAYS)],
             today=today,

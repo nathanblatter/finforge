@@ -180,30 +180,48 @@ def _flag_wash_sales(symbol: str, events: list[TradeEvent], lots: list[ClosedLot
     """
     Flag loss lots with a replacement BUY within +/-30 days of the sale
     (excluding the buy that opened the lot itself). Disallowed loss is
-    prorated by replacement quantity vs. lot quantity.
+    prorated by matched replacement quantity vs. lot quantity, and each
+    replacement share is consumed by at most one loss lot (earliest sale
+    first) so overlapping windows can't disallow the same shares twice.
+    Still a heuristic, not per-share IRS matching.
     """
     buys = [e for e in events if e.action == "BUY" and e.quantity is not None and e.quantity > 0]
     if not buys:
         return
-    window = timedelta(days=WASH_SALE_WINDOW_DAYS)
+    remaining = [b.quantity for b in buys]
 
-    for lot in lots:
-        if lot.gain is None or lot.gain >= 0:
-            continue
-        replacement_qty = ZERO
-        for buy in buys:
+    loss_lots = [l for l in lots if l.gain is not None and l.gain < 0]
+    loss_lots.sort(key=lambda l: (l.sold_date, l.acquired_date or l.sold_date))
+
+    for lot in loss_lots:
+        loss = -lot.gain
+
+        def _in_window(buy: TradeEvent) -> bool:
             if buy.trade_date == lot.acquired_date:
-                continue  # the acquisition that created this lot, not a replacement
-            if abs((buy.trade_date - lot.sold_date).days) <= window.days:
-                replacement_qty += buy.quantity  # type: ignore[operator]
-        if replacement_qty > 0:
+                return False  # the acquisition that created this lot, not a replacement
+            return abs((buy.trade_date - lot.sold_date).days) <= WASH_SALE_WINDOW_DAYS
+
+        if not lot.quantity or lot.quantity <= 0:
+            # Amount-only lot (no share count): flag fully if any unconsumed
+            # in-window replacement exists, without consuming shares.
+            if any(remaining[i] > 0 and _in_window(b) for i, b in enumerate(buys)):
+                lot.wash_sale = True
+                lot.disallowed_loss = loss
+            continue
+
+        matched = ZERO
+        for i, buy in enumerate(buys):
+            if matched >= lot.quantity:
+                break
+            if remaining[i] <= 0 or not _in_window(buy):
+                continue
+            take = min(remaining[i], lot.quantity - matched)
+            remaining[i] -= take
+            matched += take
+
+        if matched > 0:
             lot.wash_sale = True
-            loss = -lot.gain
-            if lot.quantity and lot.quantity > 0:
-                ratio = min(Decimal(1), replacement_qty / lot.quantity)
-            else:
-                ratio = Decimal(1)
-            lot.disallowed_loss = loss * ratio
+            lot.disallowed_loss = loss * (matched / lot.quantity)
 
 
 def summarize_lots(lots: list[ClosedLot]) -> RealizedTotals:

@@ -63,25 +63,56 @@ async def fetch_closes(symbol: str) -> list[float]:
         return []
 
 
-async def fetch_histories(symbols: list[str]) -> dict[str, list[float]]:
-    """Fetch price histories sequentially (kind to Schwab rate limits)."""
-    out: dict[str, list[float]] = {}
+async def fetch_dated_closes(symbol: str) -> list[tuple[int, float]]:
+    """1-year of (candle datetime ms, close) pairs. Empty list on failure."""
+    try:
+        data = await schwab_api_get(
+            "/pricehistory",
+            params={"symbol": symbol, "periodType": "year", "period": 1,
+                    "frequencyType": "daily", "frequency": 1},
+            market_data=True,
+        )
+        return [
+            (c["datetime"], c["close"])
+            for c in data.get("candles", [])
+            if c.get("close") is not None and c.get("datetime") is not None
+        ]
+    except Exception as exc:
+        logger.warning("[quant] Price history failed for %s: %s", symbol, exc)
+        return []
+
+
+async def fetch_histories(symbols: list[str]) -> dict[str, list[tuple[int, float]]]:
+    """Fetch dated price histories sequentially (kind to Schwab rate limits)."""
+    out: dict[str, list[tuple[int, float]]] = {}
     for sym in symbols:
-        closes = await fetch_closes(sym)
+        closes = await fetch_dated_closes(sym)
         if len(closes) >= 60:
             out[sym] = closes
     return out
 
 
-def aligned_returns(histories: dict[str, list[float]]) -> tuple[np.ndarray, list[str]]:
-    """Build a (T, N) daily-returns matrix aligned on the trailing min length."""
+def aligned_returns(histories: dict[str, list[tuple[int, float]]]) -> tuple[np.ndarray, list[str]]:
+    """Build a (T, N) daily-returns matrix inner-joined on candle dates.
+
+    The previous positional trailing-min-length alignment shifted symbols
+    with different trading calendars against each other, biasing
+    correlations toward 0 and understating portfolio volatility in
+    everything downstream (finforge-34).
+    """
     symbols = sorted(histories.keys())
     if not symbols:
         return np.array([]).reshape(0, 0), []
-    min_len = min(len(histories[s]) for s in symbols)
+    common = {ts for ts, _ in histories[symbols[0]]}
+    for s in symbols[1:]:
+        common &= {ts for ts, _ in histories[s]}
+    if len(common) < 2:
+        return np.array([]).reshape(0, 0), []
+    ordered = sorted(common)
     cols = []
     for s in symbols:
-        closes = np.array(histories[s][-min_len:], dtype=float)
+        by_ts = dict(histories[s])
+        closes = np.array([by_ts[ts] for ts in ordered], dtype=float)
         cols.append(np.diff(closes) / closes[:-1])
     return np.column_stack(cols), symbols
 

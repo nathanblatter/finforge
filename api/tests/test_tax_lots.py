@@ -114,3 +114,32 @@ def test_no_wash_sale_outside_window():
     ])
     assert lots[0].wash_sale is False
     assert lots[0].disallowed_loss == Decimal("0")
+
+
+def test_wash_sale_replacement_shares_not_double_counted_across_lots():
+    """Two same-day loss lots with one 50-share repurchase: the replacement
+    covers 50 shares ONCE (first lot), not 50 against each lot (finforge-33)."""
+    lots = compute_closed_lots([
+        _buy("ARKK", date(2025, 1, 2), "100", "10000"),   # lot A @ $100
+        _buy("ARKK", date(2025, 2, 3), "100", "10000"),   # lot B @ $100
+        _sell("ARKK", date(2025, 5, 1), "200", "16000"),  # $80/sh → $2000 loss/lot
+        _buy("ARKK", date(2025, 5, 10), "50", "4500"),    # 50-share repurchase
+    ])
+    loss_lots = [l for l in lots if l.gain is not None and l.gain < 0]
+    assert len(loss_lots) == 2
+    total_disallowed = sum(l.disallowed_loss for l in loss_lots)
+    # 50 replacement shares / 100-share lot → half of one lot's $2000 loss
+    assert total_disallowed == Decimal("1000")
+    assert sum(1 for l in loss_lots if l.wash_sale) == 1
+
+
+def test_wash_sale_full_repurchase_covers_both_lots():
+    lots = compute_closed_lots([
+        _buy("ARKK", date(2025, 1, 2), "100", "10000"),
+        _buy("ARKK", date(2025, 2, 3), "100", "10000"),
+        _sell("ARKK", date(2025, 5, 1), "200", "16000"),
+        _buy("ARKK", date(2025, 5, 10), "200", "17000"),  # full repurchase
+    ])
+    loss_lots = [l for l in lots if l.gain is not None and l.gain < 0]
+    assert all(l.wash_sale for l in loss_lots)
+    assert sum(l.disallowed_loss for l in loss_lots) == Decimal("4000")

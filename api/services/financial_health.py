@@ -56,8 +56,6 @@ VOLATILITY_MIN_MONTHS = 2       # need at least this many data points
 ALLOCATION_DRIFT_TARGET_MAX_PCT = 15.0  # avg abs drift >= this => score 0
 ALLOCATION_DRIFT_LOOKBACK_SNAPSHOTS = 6  # fallback: trailing avg-mix window
 
-DISCRETIONARY_CATEGORIES = ("dining", "entertainment", "shopping", "travel")  # matches kpi.py
-
 SCORE_DROP_ALERT_THRESHOLD = 10.0  # composite points, month-over-month
 
 
@@ -130,15 +128,16 @@ def _flow_totals(db: Session, first_day: date, last_day: date) -> tuple[float, f
     return income, essential, discretionary
 
 
-def _liquid_cash(db: Session) -> float:
-    """WF Checking's latest balance — same "liquid cash" definition used by
-    api/routers/summary.py::get_summary."""
+def _liquid_cash(db: Session, as_of: date | None = None) -> float:
+    """WF Checking's latest balance on or before `as_of` — same "liquid cash"
+    definition used by api/routers/summary.py::get_summary. Historical health
+    scores previously priced every month with today's balance (finforge-35/F11)."""
     account = db.query(Account).filter_by(alias="WF Checking").first()
     if account is None:
         return 0.0
     balance = (
         db.query(Balance)
-        .filter(Balance.account_id == account.id, Balance.balance_date <= date.today())
+        .filter(Balance.account_id == account.id, Balance.balance_date <= (as_of or date.today()))
         .order_by(Balance.balance_date.desc(), Balance.created_at.desc())
         .first()
     )
@@ -182,7 +181,7 @@ def score_emergency_fund(db: Session, as_of: date) -> dict:
         _, e, _ = _flow_totals(db, first_day, last_day)
         essential_total += e
     avg_essential = essential_total / max(EMERGENCY_FUND_LOOKBACK_MONTHS, 1)
-    liquid = _liquid_cash(db)
+    liquid = _liquid_cash(db, as_of)
     months = (liquid / avg_essential) if avg_essential > 0 else (EMERGENCY_FUND_TARGET_MONTHS if liquid > 0 else 0.0)
     score = _clamp(months / EMERGENCY_FUND_TARGET_MONTHS * 100)
     return {

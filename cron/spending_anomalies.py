@@ -100,29 +100,11 @@ def run_spending_anomalies() -> None:
                 new_anomalies.append((t, "outlier", z, med, detail))
                 flagged_ids.add(t.id)
 
-        # --- Detector 2: duplicate charges ---
-        by_merchant_amount: dict[tuple[str, Decimal], list[TransactionRow]] = {}
-        for t in recent:
-            if not t.merchant_name or t.amount < MIN_AMOUNT:
-                continue
-            key = (t.merchant_name.strip().lower(), t.amount)
-            by_merchant_amount.setdefault(key, []).append(t)
-
-        for (merchant, amount), txns in by_merchant_amount.items():
-            if len(txns) < 2:
-                continue
-            txns.sort(key=lambda t: t.date)
-            for prev, cur in zip(txns, txns[1:]):
-                if (cur.date - prev.date).days > DUPLICATE_WINDOW_DAYS:
-                    continue
-                if cur.id in flagged_ids:
-                    continue
-                detail = (
-                    f"Possible duplicate: ${float(amount):,.2f} at {cur.merchant_name} "
-                    f"on {cur.date} (also charged {prev.date})"
-                )
-                new_anomalies.append((cur, "duplicate", None, float(amount), detail))
-                flagged_ids.add(cur.id)
+        # Duplicate-charge detection retired here (finforge-21/finforge-35-F6):
+        # charge_guardian.detect_duplicate_charges is the single source — it
+        # normalizes merchants, excludes recurring merchants and Investment
+        # Transfer rows, none of which this detector did (it double-notified
+        # and false-alerted on same-amount stock buys).
 
         # --- Persist + notify ---
         now = datetime.now(timezone.utc)

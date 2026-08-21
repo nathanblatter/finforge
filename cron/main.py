@@ -273,6 +273,15 @@ def weekly_digest() -> None:
         logger.error("weekly_digest failed:\n%s", traceback.format_exc())
 
 
+def escalate_cron_errors() -> None:
+    """Alert Nathan when a cron job keeps failing (errors otherwise only land in cron_logs)."""
+    try:
+        from error_escalation import run_error_escalation
+        run_error_escalation()
+    except Exception:
+        logger.error("error_escalation failed:\n%s", traceback.format_exc())
+
+
 def deliver_imessages() -> None:
     """Flush the NateBot queue to the imessage-api gateway as real iMessages."""
     try:
@@ -573,6 +582,14 @@ def build_scheduler() -> BlockingScheduler:
         trigger=IntervalTrigger(minutes=1, timezone=TIMEZONE),
         id="deliver_imessages",
         name="Deliver iMessages",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        escalate_cron_errors,
+        trigger=IntervalTrigger(minutes=30, timezone=TIMEZONE),
+        id="error_escalation",
+        name="Cron Error Escalation",
         max_instances=1,
         coalesce=True,
     )

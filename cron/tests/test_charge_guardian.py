@@ -140,12 +140,16 @@ def test_duplicate_charge_notes_cross_account():
 
 def test_new_subscription_flags_first_charge_of_recurring_merchant():
     base = date(2026, 1, 15)
-    txns = [txn("Hulu", "12.99", months_apart(base, i)) for i in range(3)]
+    # Older unrelated history so the window demonstrably predates Hulu's
+    # first charge (merchants whose first charge sits at the window edge are
+    # skipped — their history may predate the data).
+    history = [txn("Groceries", "80.00", date(2025, 9, 1))]
+    txns = history + [txn("Hulu", "12.99", months_apart(base, i)) for i in range(3)]
     findings = detect_new_subscriptions(txns)
     assert len(findings) == 1
     f = findings[0]
     assert f.kind == "new_subscription"
-    first = min(txns, key=lambda t: t.date)
+    first = min((t for t in txns if t.merchant_name == "Hulu"), key=lambda t: t.date)
     assert f.evidence_transaction_ids == [first.id]
     assert f.dedupe_key == f"new_subscription:{normalize_merchant('Hulu')}"
 
@@ -160,9 +164,10 @@ def test_new_subscription_dedupe_key_is_merchant_only():
     same merchant still recurring) produces the identical key — persistence
     layer relies on this to fire only once ever."""
     base = date(2026, 1, 15)
+    history = [txn("Groceries", "80.00", date(2025, 9, 1))]
     txns = [txn("Hulu", "12.99", months_apart(base, i)) for i in range(4)]
-    f1 = detect_new_subscriptions(txns[:3])[0]
-    f2 = detect_new_subscriptions(txns)[0]
+    f1 = detect_new_subscriptions(history + txns[:3])[0]
+    f2 = detect_new_subscriptions(history + txns)[0]
     assert f1.dedupe_key == f2.dedupe_key
 
 
@@ -271,3 +276,11 @@ def test_gray_charge_creep_annualizes_cost():
     ]
     f = detect_gray_charge_creep(txns, today=today)[0]
     assert f.amount == Decimal("4.99") * 12
+
+
+def test_new_subscription_skipped_when_first_charge_is_at_window_edge():
+    """A merchant whose earliest charge sits within the history buffer of the
+    oldest visible transaction may predate the data window — not "new"."""
+    base = date(2026, 1, 15)
+    txns = [txn("Netflix", "15.49", months_apart(base, i)) for i in range(4)]
+    assert detect_new_subscriptions(txns) == []

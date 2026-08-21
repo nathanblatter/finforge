@@ -495,7 +495,9 @@ def get_spending_forecast(
 
     categories.sort(key=lambda c: c["forecast"], reverse=True)
     return {
-        "forecast_month": (first_of_current.replace(day=28) + timedelta(days=4)).strftime("%Y-%m"),
+        # One-step-ahead Holt forecast on history ending at the last complete
+        # month predicts the CURRENT month (finforge-35/F4 — was labeled next month).
+        "forecast_month": first_of_current.strftime("%Y-%m"),
         "current_month": first_of_current.strftime("%Y-%m"),
         "total_forecast": round(sum(c["forecast"] for c in categories), 2),
         "categories": categories,

@@ -33,11 +33,17 @@ def deliver_pending_notifications() -> None:
     headers = {"X-API-Key": settings.imessage_api_key, "Content-Type": "application/json"}
 
     with get_session() as session:
-        # Suppress stale messages instead of delivering them late.
+        # Suppress stale messages instead of delivering them late. Urgent
+        # messages are exempt: a late urgent alert (drawdown, runway floor,
+        # dead Schwab auth) still beats a silently dropped one (finforge-32).
         stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=MAX_AGE_MINUTES)
         dropped = (
             session.query(NatebotQueueRow)
-            .filter(NatebotQueueRow.delivered.is_(False), NatebotQueueRow.created_at < stale_cutoff)
+            .filter(
+                NatebotQueueRow.delivered.is_(False),
+                NatebotQueueRow.created_at < stale_cutoff,
+                NatebotQueueRow.priority != "urgent",
+            )
             .update(
                 {NatebotQueueRow.delivered: True, NatebotQueueRow.delivered_at: datetime.now(timezone.utc)},
                 synchronize_session=False,
