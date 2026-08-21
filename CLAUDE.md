@@ -1,3 +1,9 @@
+# Vision
+
+**Financial data reliably aggregated to motivate me to save and invest my money.**
+
+Every feature must serve reliable aggregation or savings/investing motivation — kill anything that doesn't. Data trust (correct numbers, live syncs, alerts that actually fire) outranks new features.
+
 # CI/CD
 
 - **Org:** github.com/nathanblatter
