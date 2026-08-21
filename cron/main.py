@@ -347,6 +347,8 @@ def schwab_token_watchdog() -> None:
         logger.critical(
             "[token_watchdog] Schwab refresh token has EXPIRED. Manual re-auth required."
         )
+        from notify import alert_schwab_reauth
+        alert_schwab_reauth("token watchdog: refresh token expired")
         return
 
     if days_remaining <= REFRESH_TOKEN_WARN_DAYS:
@@ -359,6 +361,8 @@ def schwab_token_watchdog() -> None:
             logger.info("[token_watchdog] Token refresh successful — 7-day window reset")
         except SchwabReauthRequired:
             logger.critical("[token_watchdog] Refresh token rejected — manual re-auth required")
+            from notify import alert_schwab_reauth
+            alert_schwab_reauth("token watchdog: refresh rejected")
         except Exception as exc:
             logger.error("[token_watchdog] Token refresh failed: %s", exc)
         return
@@ -676,6 +680,8 @@ def _startup_token_refresh() -> None:
         logger.critical(
             "Schwab refresh token EXPIRED — manual re-auth required via /api/v1/auth/schwab/login"
         )
+        from notify import alert_schwab_reauth
+        alert_schwab_reauth("cron startup token refresh")
     except Exception as exc:
         logger.error("Startup Schwab token refresh failed: %s", exc)
 

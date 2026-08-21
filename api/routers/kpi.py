@@ -1,6 +1,6 @@
 """KPI router — exposes aggregated financial metrics for external dashboards."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Header
@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from config import settings
 from database import get_db
+from services.financial_health import _flow_totals
 
 router = APIRouter(tags=["kpi"])
 
@@ -21,18 +22,13 @@ def verify_kpi_key(x_kpi_api_key: Optional[str] = Header(None)):
 @router.get("/kpi")
 def get_kpi(db: Session = Depends(get_db), _=Depends(verify_kpi_key)):
     try:
-        # Monthly savings rate: (income - expenses) / income for current calendar month
-        savings_res = db.execute(text("""
-            SELECT
-                SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS income,
-                SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS expenses
-            FROM transactions
-            WHERE date >= DATE_TRUNC('month', NOW())
-              AND date < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'
-        """)).fetchone()
-
-        income = float(savings_res.income or 0)
-        expenses = float(savings_res.expenses or 0)
+        # Monthly savings rate: (income - expenses) / income for current calendar month.
+        # Uses the canonical debits-positive classification shared with
+        # financial_health (checking deposits = income; fixed checking debits
+        # + credit-card debits = spend; Investment Transfer excluded).
+        today = date.today()
+        income, essential, discretionary = _flow_totals(db, today.replace(day=1), today)
+        expenses = essential + discretionary
         savings_rate = round((income - expenses) / income * 100, 1) if income > 0 else 0.0
 
         # Net worth: sum of the most recent balance_amount per active account
@@ -50,17 +46,11 @@ def get_kpi(db: Session = Depends(get_db), _=Depends(verify_kpi_key)):
         """)).fetchone()
         current_nw = float(nw_res.current_nw or 0) if nw_res else 0.0
 
-        # Discretionary spend % over last 30 days
-        disc_res = db.execute(text("""
-            SELECT
-                SUM(ABS(amount)) FILTER (WHERE category IN ('dining', 'entertainment', 'shopping', 'travel')) AS discretionary,
-                SUM(ABS(amount)) FILTER (WHERE amount < 0) AS total_spend
-            FROM transactions
-            WHERE date >= NOW() - INTERVAL '30 days'
-        """)).fetchone()
-        disc = float(disc_res.discretionary or 0)
-        total_spend = float(disc_res.total_spend or 0)
-        disc_pct = round(disc / total_spend * 100, 1) if total_spend > 0 else 0.0
+        # Discretionary spend % over last 30 days (discretionary = non-fixed
+        # credit-card spend, total = essential + discretionary)
+        _, ess_30, disc_30 = _flow_totals(db, today - timedelta(days=30), today)
+        total_spend = ess_30 + disc_30
+        disc_pct = round(disc_30 / total_spend * 100, 1) if total_spend > 0 else 0.0
 
         # Portfolio holdings (latest snapshot date)
         portfolio_res = db.execute(text("""

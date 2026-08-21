@@ -38,6 +38,7 @@ from db import (
     get_or_create_account,
 )
 from etl.deidentify import deidentify_schwab_balance, deidentify_schwab_position
+from notify import alert_schwab_reauth
 from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ def run_schwab_sync() -> None:
             "[schwab_sync] Schwab re-authentication required — "
             "refresh token expired. Sync aborted. Manual browser auth needed."
         )
+        alert_schwab_reauth("schwab_sync token refresh")
         return
     except Exception as exc:
         logger.error("[schwab_sync] Token refresh failed: %s", exc)
@@ -115,6 +117,7 @@ def run_schwab_sync() -> None:
         sync_schwab_accounts(token_manager)
     except SchwabReauthRequired:
         logger.critical("[schwab_sync] Schwab re-auth required during account sync.")
+        alert_schwab_reauth("schwab_sync account sync")
         return
     except Exception as exc:
         logger.error("[schwab_sync] Account sync failed: %s", exc)
@@ -123,6 +126,7 @@ def run_schwab_sync() -> None:
         sync_schwab_positions(token_manager)
     except SchwabReauthRequired:
         logger.critical("[schwab_sync] Schwab re-auth required during positions sync.")
+        alert_schwab_reauth("schwab_sync positions sync")
         return
     except Exception as exc:
         logger.error("[schwab_sync] Positions sync failed: %s", exc)
@@ -131,6 +135,7 @@ def run_schwab_sync() -> None:
         sync_schwab_orders(token_manager)
     except SchwabReauthRequired:
         logger.critical("[schwab_sync] Schwab re-auth required during orders sync.")
+        alert_schwab_reauth("schwab_sync orders sync")
         return
     except Exception as exc:
         logger.error("[schwab_sync] Orders sync failed: %s", exc)
@@ -139,6 +144,7 @@ def run_schwab_sync() -> None:
         sync_schwab_transactions(token_manager)
     except SchwabReauthRequired:
         logger.critical("[schwab_sync] Schwab re-auth required during transactions sync.")
+        alert_schwab_reauth("schwab_sync transactions sync")
         return
     except Exception as exc:
         logger.error("[schwab_sync] Transactions sync failed: %s", exc)

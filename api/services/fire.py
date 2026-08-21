@@ -112,21 +112,19 @@ def compute_net_worth(db: Session) -> dict:
 def compute_savings_rate(db: Session, months: int = 12) -> dict:
     """Trailing-N-month income/expenses, annualized savings rate + $ savings.
 
-    Same amount-sign convention as routers/kpi.py's monthly savings-rate
-    query (amount > 0 = income, amount < 0 = expense), generalized to a
-    trailing window and expressed via the ORM instead of raw SQL.
+    Uses the canonical debits-positive classification shared with
+    services.financial_health._flow_totals (checking deposits = income;
+    fixed checking debits + credit-card debits = spend; pending and
+    Investment Transfer rows excluded). The previous raw-sign split
+    (amount > 0 = income) was inverted under this convention and fed the
+    FIRE engine an income figure as annual spend (finforge-14).
     """
-    since = date.today() - timedelta(days=months * 30)
-    row = (
-        db.query(
-            func.sum(case((Transaction.amount > 0, Transaction.amount), else_=0)),
-            func.sum(case((Transaction.amount < 0, -Transaction.amount), else_=0)),
-        )
-        .filter(Transaction.date >= since)
-        .first()
-    )
-    income = float(row[0] or 0)
-    expenses = float(row[1] or 0)
+    from services.financial_health import _flow_totals
+
+    today = date.today()
+    since = today - timedelta(days=round(months * 365.25 / 12))
+    income, essential, discretionary = _flow_totals(db, since, today)
+    expenses = essential + discretionary
     n_years = months / 12.0
 
     income_annualized = income / n_years if n_years > 0 else 0.0

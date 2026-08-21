@@ -2,13 +2,52 @@
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from db import NatebotQueueRow, get_session
 
 logger = logging.getLogger(__name__)
 
 MAX_IMESSAGE_LENGTH = 1600
+
+SCHWAB_REAUTH_CATEGORY = "schwab_reauth"
+SCHWAB_REAUTH_DEDUPE_HOURS = 12
+
+
+def alert_schwab_reauth(source: str) -> None:
+    """Queue an urgent iMessage that Schwab auth is dead, with the exact fix.
+
+    Dedupes against natebot_queue (one alert per SCHWAB_REAUTH_DEDUPE_HOURS,
+    surviving restarts) so watchdog/sync paths can call this unconditionally.
+    """
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=SCHWAB_REAUTH_DEDUPE_HOURS)
+        with get_session() as session:
+            recent = (
+                session.query(NatebotQueueRow)
+                .filter(
+                    NatebotQueueRow.category == SCHWAB_REAUTH_CATEGORY,
+                    NatebotQueueRow.created_at >= cutoff,
+                )
+                .first()
+            )
+            if recent is not None:
+                logger.info(
+                    "[notify] Schwab reauth alert suppressed (already sent within %dh)",
+                    SCHWAB_REAUTH_DEDUPE_HOURS,
+                )
+                return
+    except Exception as exc:
+        logger.error("[notify] Schwab reauth dedupe check failed (%s) — sending anyway", exc)
+
+    queue_notification(
+        category=SCHWAB_REAUTH_CATEGORY,
+        text=(
+            "FinForge: Schwab auth is DEAD — portfolio/tax/dividend syncs are stopped "
+            f"({source}).\n\nFix: cd ~/dev/finforge && python3 scripts/schwab_reauth.py"
+        ),
+        priority="urgent",
+    )
 
 
 def queue_notification(category: str, text: str, priority: str = "normal") -> None:

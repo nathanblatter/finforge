@@ -106,11 +106,15 @@ class SchwabTokenManager:
         Return a valid access token, refreshing if it is within
         ACCESS_TOKEN_BUFFER_SECONDS of expiry.
 
+        Always re-reads the token file: the api container shares this file
+        and rotates the refresh token too, so a long-lived in-memory copy
+        goes stale and every refresh 400s until the process restarts.
+
         Raises:
             SchwabReauthRequired: If the refresh token is expired or rejected.
             FileNotFoundError: If the token file has not been initialized.
         """
-        tokens = self._tokens or self.load_tokens()
+        tokens = self.load_tokens()
         expires_at = datetime.fromisoformat(tokens["expires_at"])
 
         now = datetime.now(timezone.utc)
@@ -119,10 +123,27 @@ class SchwabTokenManager:
 
         if now >= expires_at - timedelta(seconds=ACCESS_TOKEN_BUFFER_SECONDS):
             logger.info("Schwab access token near expiry — refreshing")
-            tokens = self.refresh_access_token(tokens["refresh_token"])
-            self.save_tokens({**self._tokens, **tokens})
+            self._refresh_and_save(tokens)
 
         return self._tokens["access_token"]
+
+    def _refresh_and_save(self, tokens: dict[str, Any]) -> None:
+        """Refresh using `tokens`, retrying once with a fresh disk read if the
+        on-disk refresh token was rotated by the other container mid-flight."""
+        try:
+            new_tokens = self.refresh_access_token(tokens["refresh_token"])
+        except SchwabReauthRequired:
+            raise
+        except Exception:
+            fresh = self.load_tokens()
+            if fresh.get("refresh_token") == tokens.get("refresh_token"):
+                raise
+            logger.warning(
+                "Schwab refresh failed with a token that was rotated on disk — retrying with the fresh one"
+            )
+            tokens = fresh
+            new_tokens = self.refresh_access_token(tokens["refresh_token"])
+        self.save_tokens({**tokens, **new_tokens})
 
     def refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         """
@@ -175,6 +196,12 @@ class SchwabTokenManager:
                 )
                 raise SchwabReauthRequired("Schwab invalid_client — manual re-auth needed")
             logger.error("Schwab token refresh failed (%d): %s", response.status_code, body[:200])
+            if 400 <= response.status_code < 500:
+                # Any other 4xx (e.g. the observed unsupported_token_type 400)
+                # means Schwab rejected our credentials/token — manual re-auth.
+                raise SchwabReauthRequired(
+                    f"Schwab token refresh rejected ({response.status_code}) — manual re-auth needed"
+                )
             response.raise_for_status()
 
         data = response.json()
@@ -192,10 +219,9 @@ class SchwabTokenManager:
         Unconditionally refresh the access token (and roll the refresh token).
         Called every nightly run to reset the 7-day refresh token window.
         """
-        tokens = self._tokens or self.load_tokens()
+        tokens = self.load_tokens()
         logger.info("Schwab: forcing token refresh to roll 7-day refresh token window")
-        new_tokens = self.refresh_access_token(tokens["refresh_token"])
-        self.save_tokens({**tokens, **new_tokens})
+        self._refresh_and_save(tokens)
 
     # ------------------------------------------------------------------
     # Account hash management
