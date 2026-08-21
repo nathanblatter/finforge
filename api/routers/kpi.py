@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from config import settings
 from database import get_db
+from services import fire
 from services.financial_health import _flow_totals
 
 router = APIRouter(tags=["kpi"])
@@ -31,20 +32,13 @@ def get_kpi(db: Session = Depends(get_db), _=Depends(verify_kpi_key)):
         expenses = essential + discretionary
         savings_rate = round((income - expenses) / income * 100, 1) if income > 0 else 0.0
 
-        # Net worth: sum of the most recent balance_amount per active account
-        nw_res = db.execute(text("""
-            SELECT SUM(b.balance_amount) AS current_nw
-            FROM balances b
-            INNER JOIN (
-                SELECT account_id, MAX(balance_date) AS latest_date
-                FROM balances
-                GROUP BY account_id
-            ) latest ON b.account_id = latest.account_id
-                      AND b.balance_date = latest.latest_date
-            INNER JOIN accounts a ON a.id = b.account_id
-            WHERE a.is_active = true
-        """)).fetchone()
-        current_nw = float(nw_res.current_nw or 0) if nw_res else 0.0
+        # Net worth: reuse the FIRE engine's definition (cash + invested −
+        # credit-card debt). The old raw-SQL sum ADDED credit-card balances,
+        # overstating net worth by 2× the debt.
+        try:
+            current_nw = fire.compute_net_worth(db)["net_worth"]
+        except ValueError:
+            current_nw = 0.0  # no balance data yet
 
         # Discretionary spend % over last 30 days (discretionary = non-fixed
         # credit-card spend, total = essential + discretionary)
