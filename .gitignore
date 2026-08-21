@@ -41,3 +41,4 @@ build/
 
 # ML models
 secrets/*.pkl
+*.tsbuildinfo
