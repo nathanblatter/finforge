@@ -61,8 +61,11 @@ jobs:
           cd /Users/nathanblatter/dev/finforge
           git pull origin main
 
-          # Build all images
-          docker compose build --no-cache
+          # Build all images. Layer cache stays valid for unchanged services;
+          # a requirements/source edit invalidates exactly the layers it
+          # touches — no need for --no-cache (which re-downloaded every pip and
+          # npm dependency on every deploy, ~20 min per run on this runner).
+          docker compose build
 
           # Apply database migrations before rolling out new code.
           # Runs alembic inside the freshly-built API image with the repo root
