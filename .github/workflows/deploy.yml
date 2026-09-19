@@ -162,4 +162,8 @@ jobs:
           # Recreate cron with new image (background job, brief restart OK)
           docker compose up -d finforge-cron
 
+          # Host-port edge proxy for local consumers (stock nginx image, only
+          # restarts when its config changes)
+          docker compose up -d finforge-edge
+
           echo "All services deployed!"

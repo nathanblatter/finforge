@@ -27,6 +27,22 @@ services:
       retries: 6
       start_period: 20s
 
+  # Publishes the API on the host for local consumers (natebot's briefing
+  # calls hit http://localhost:8001). The api service itself can't publish a
+  # host port because the zero-downtime deploy scales it to 2 replicas.
+  finforge-edge:
+    image: nginx:alpine
+    container_name: finforge-edge
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - finforge-api
+    networks:
+      - finforge-net
+    restart: unless-stopped
+
   finforge-ui:
     build:
       context: ./ui
