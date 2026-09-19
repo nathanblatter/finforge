@@ -73,6 +73,24 @@ services:
       - finforge-net
     restart: unless-stopped
 
+  # Read-only MCP server for agents (natebot brain, Claude Code sessions).
+  # Tailnet-only, same pattern as flightdeck (:4300); endpoint is /mcp.
+  finforge-mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    container_name: finforge-mcp
+    ports:
+      - "100.79.61.79:4301:8000"
+    environment:
+      FINFORGE_API_URL: http://finforge-api:8000/api/v1
+      FINFORGE_API_KEY: ${API_KEY}
+    depends_on:
+      - finforge-api
+    networks:
+      - finforge-net
+    restart: unless-stopped
+
   finforge-cron:
     build:
       context: ./cron

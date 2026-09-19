@@ -166,4 +166,7 @@ jobs:
           # restarts when its config changes)
           docker compose up -d finforge-edge
 
+          # MCP server (brief restart OK — stateless)
+          docker compose up -d finforge-mcp
+
           echo "All services deployed!"
