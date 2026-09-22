@@ -13,11 +13,12 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from dependencies import verify_api_key
 from models.db_models import Account, Transaction
@@ -400,7 +401,9 @@ def email_reimbursement(
     # Build email
     msg = MIMEMultipart()
     msg["From"] = "noreply@nathanblatter.com"
-    msg["To"] = "eric.blatter296@gmail.com"
+    if not settings.reimbursement_to_email:
+        raise HTTPException(status_code=400, detail="REIMBURSEMENT_TO_EMAIL is not configured")
+    msg["To"] = settings.reimbursement_to_email
     msg["Subject"] = filename.replace(".xlsx", "")
 
     body = f"Hi Dad,\n\nHere are my expenses for {month_name} {year}.\n\nThanks,\nNathan"

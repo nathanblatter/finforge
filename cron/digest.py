@@ -32,7 +32,7 @@ logger = logging.getLogger("finforge.cron.digest")
 _SMTP_HOST = "docker-services-postfix-1"
 _SMTP_PORT = 25
 _FROM_ADDR = "noreply@nathanblatter.com"
-_TO_ADDR = "nathan.blatter@yahoo.com"
+_TO_ADDR = settings.report_to_email
 
 
 # ---------------------------------------------------------------------------

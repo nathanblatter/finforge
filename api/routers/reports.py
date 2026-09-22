@@ -135,7 +135,9 @@ def _parse_month(month: str) -> tuple[int, int]:
 _SMTP_HOST = "docker-services-postfix-1"
 _SMTP_PORT = 25
 _FROM_ADDR = "noreply@nathanblatter.com"
-_TO_ADDR = "nathan.blatter@yahoo.com"
+from config import settings
+
+_TO_ADDR = settings.report_to_email
 
 _CREDIT_CARD_ALIASES = {"WF Credit Card", "Amex Credit Card"}
 _CHECKING_ALIASES = {"WF Checking"}

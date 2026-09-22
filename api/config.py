@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     flightdeck_url: str = "http://flightdeck:8080"
     flightdeck_ingest_key: str = ""
 
+    # Outbound email recipients (kept out of source: repo is public)
+    report_to_email: str = ""
+    reimbursement_to_email: str = ""
+
     # App
     environment: str = "development"
     log_level: str = "INFO"
