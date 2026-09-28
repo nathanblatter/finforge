@@ -4,6 +4,7 @@ import { usePlaidLink } from 'react-plaid-link'
 import { useAuth } from '../hooks/useAuth'
 import Header from '../components/layout/Header'
 import CronLogsPanel from '../components/settings/CronLogsPanel'
+import PasskeysPanel from '../components/settings/PasskeysPanel'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
 const BASE = '/api/v1'
@@ -266,6 +267,8 @@ export default function SettingsPage() {
           {success}
         </div>
       )}
+
+      <PasskeysPanel />
 
       {/* Connected Services */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">

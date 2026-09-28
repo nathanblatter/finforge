@@ -6,6 +6,7 @@ import { useAuth } from './hooks/useAuth'
 import LoginPage from './pages/LoginPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import SecurityPolicyPage from './pages/SecurityPolicyPage'
+import PasskeyEnrollPage from './pages/PasskeyEnrollPage'
 
 const DashboardPage   = lazy(() => import('./pages/DashboardPage'))
 const SpendingPage    = lazy(() => import('./pages/SpendingPage'))
@@ -137,6 +138,7 @@ export default function App() {
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/security" element={<SecurityPolicyPage />} />
         <Route path="/login" element={<LoginRoute />} />
+        <Route path="/passkeys/enroll" element={<PasskeyEnrollPage />} />
 
         {/* Everything else requires authentication */}
         <Route path="/*" element={<AuthenticatedRoutes />} />

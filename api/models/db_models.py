@@ -17,6 +17,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -100,7 +101,8 @@ class User(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     username: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # NULL means password login is disabled for this user (passkey-only).
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     totp_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -116,6 +118,36 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User username={self.username!r}>"
+
+
+class Passkey(Base):
+    """A WebAuthn credential (passkey) registered to a user."""
+
+    __tablename__ = "passkeys"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Raw credential ID bytes as returned by the authenticator (unique per credential).
+    credential_id: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, unique=True)
+    public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    transports: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String(32)), nullable=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, default="Passkey")
+    aaguid: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    backed_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped["User"] = relationship("User", backref="passkeys")
+
+    def __repr__(self) -> str:
+        return f"<Passkey user_id={self.user_id} name={self.name!r}>"
 
 
 class Account(Base):

@@ -26,6 +26,8 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: str
     services: list[str]
+    has_password: bool = True
+    passkey_count: int = 0
 
 
 class CreateUserRequest(BaseModel):
@@ -93,6 +95,8 @@ def _user_to_response(user: User, services: list[str]) -> UserResponse:
         is_active=user.is_active,
         created_at=user.created_at.isoformat() if user.created_at else "",
         services=services,
+        has_password=bool(user.password_hash),
+        passkey_count=len(user.passkeys),
     )
 
 

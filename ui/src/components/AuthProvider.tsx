@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, type ReactNode } from 'react'
 import { AuthContext, type AuthState } from '../hooks/useAuth'
+import { loginWithPasskey as passkeyLogin } from '../api/passkeys'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
 const BASE = '/api/v1'
@@ -46,6 +47,18 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const setSession = useCallback((accessToken: string) => {
+    localStorage.setItem(TOKEN_KEY, accessToken)
+    setToken(accessToken)
+    setMfaRequired(false)
+    setMfaPendingToken(null)
+  }, [])
+
+  const loginWithPasskey = useCallback(async (username?: string) => {
+    const data = await passkeyLogin(username)
+    setSession(data.access_token)
+  }, [setSession])
+
   const verifyMfa = useCallback(async (code: string) => {
     const data = await authFetch<{ access_token: string }>(
       '/auth/mfa/verify',
@@ -78,8 +91,8 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   const value: AuthState = useMemo(
-    () => ({ token, mfaRequired, mfaPendingToken, login, verifyMfa, logout, setupMfa, confirmMfa }),
-    [token, mfaRequired, mfaPendingToken, login, verifyMfa, logout, setupMfa, confirmMfa],
+    () => ({ token, mfaRequired, mfaPendingToken, login, loginWithPasskey, setSession, verifyMfa, logout, setupMfa, confirmMfa }),
+    [token, mfaRequired, mfaPendingToken, login, loginWithPasskey, setSession, verifyMfa, logout, setupMfa, confirmMfa],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

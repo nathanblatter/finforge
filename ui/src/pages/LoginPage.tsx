@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { passkeysSupported } from '../api/passkeys'
 
 export default function LoginPage() {
-  const { login, mfaRequired, verifyMfa } = useAuth()
+  const { login, loginWithPasskey, mfaRequired, verifyMfa } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [mfaCode, setMfaCode] = useState('')
@@ -18,6 +19,19 @@ export default function LoginPage() {
       await login(username, password)
     } catch (err: any) {
       setError(err.message || 'Login failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handlePasskey() {
+    setError('')
+    setLoading(true)
+    try {
+      await loginWithPasskey(username || undefined)
+    } catch (err: any) {
+      // User cancelling the OS prompt is not an error worth shouting about.
+      if (err?.name !== 'NotAllowedError') setError(err.message || 'Passkey sign-in failed')
     } finally {
       setLoading(false)
     }
@@ -84,11 +98,36 @@ export default function LoginPage() {
           </div>
           <p className="text-sm text-slate-400 mb-6">Sign in to your account</p>
 
+          {passkeysSupported() && (
+            <>
+              <button
+                type="button"
+                onClick={handlePasskey}
+                disabled={loading}
+                className="w-full py-3 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="7" r="4" /><path d="M5.5 21a6.5 6.5 0 0 1 13 0" /><path d="M17 11l2 2-2 2" />
+                </svg>
+                {loading ? 'Waiting for passkey...' : 'Sign in with passkey'}
+              </button>
+              {error && <p className="text-rose-400 text-sm mt-3">{error}</p>}
+              <div className="flex items-center gap-3 my-5 text-xs text-slate-600">
+                <div className="flex-1 h-px bg-slate-800" />
+                or use a password
+                <div className="flex-1 h-px bg-slate-800" />
+              </div>
+            </>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Username</label>
+              <label htmlFor="login-username" className="block text-xs font-medium text-slate-400 mb-1.5">Username</label>
               <input
+                id="login-username"
+                name="username"
                 type="text"
+                autoComplete="username webauthn"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-sky-500"
@@ -97,16 +136,19 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Password</label>
+              <label htmlFor="login-password" className="block text-xs font-medium text-slate-400 mb-1.5">Password</label>
               <input
+                id="login-password"
+                name="password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-sky-500"
               />
             </div>
 
-            {error && <p className="text-rose-400 text-sm">{error}</p>}
+            {error && !passkeysSupported() && <p className="text-rose-400 text-sm">{error}</p>}
 
             <button
               type="submit"

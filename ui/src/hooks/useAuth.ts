@@ -5,6 +5,9 @@ export interface AuthState {
   mfaRequired: boolean
   mfaPendingToken: string | null
   login: (username: string, password: string) => Promise<void>
+  loginWithPasskey: (username?: string) => Promise<void>
+  /** Install an access token obtained out-of-band (e.g. passkey enrollment link). */
+  setSession: (accessToken: string) => void
   verifyMfa: (code: string) => Promise<void>
   logout: () => void
   setupMfa: () => Promise<{ secret: string; qr_code: string; otpauth_uri: string }>

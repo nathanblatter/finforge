@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_expire_days: int = 7
 
+    # WebAuthn / passkeys. rp_id is the registrable domain the passkey is bound
+    # to; origin must match the browser's origin exactly (scheme + host).
+    webauthn_rp_id: str = "finforge.nathanblatter.com"
+    webauthn_rp_name: str = "FinForge"
+    webauthn_origin: str = "https://finforge.nathanblatter.com"
+    # Public base URL used to build one-time passkey enrollment links.
+    public_url: str = "https://finforge.nathanblatter.com"
+
     # Claude AI
     anthropic_api_key: str = ""
 
