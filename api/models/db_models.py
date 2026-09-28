@@ -295,7 +295,11 @@ class Holding(Base):
         index=True,
     )
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    symbol: Mapped[str] = mapped_column(String(20), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    # EQUITY | OPTION | ... (Schwab instrument assetType). Options use the OCC
+    # symbol; quantity is signed (negative = short, e.g. a written covered call)
+    # and cost_basis is the signed net cost (negative = premium received).
+    asset_type: Mapped[str] = mapped_column(String(20), nullable=False, default="EQUITY", server_default="EQUITY")
     quantity: Mapped[Decimal] = mapped_column(Numeric(15, 6), nullable=False)
     market_value: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     cost_basis: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
@@ -339,12 +343,18 @@ class InvestmentTransaction(Base):
         index=True,
     )
     schwab_activity_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    # TRADE / DIVIDEND / INTEREST / QUALIFIED_DIVIDEND / ...
+    # TRADE / DIVIDEND / INTEREST / QUALIFIED_DIVIDEND / OPTION_EXPIRATION /
+    # OPTION_ASSIGNMENT / OPTION_EXERCISE ...
     txn_type: Mapped[str] = mapped_column(String(40), nullable=False)
-    action: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # BUY / SELL for trades
+    # BUY / SELL for trades; CLOSE for zero-cash option removals (expiry/assignment).
+    action: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    asset_type: Mapped[str] = mapped_column(String(20), nullable=False, default="EQUITY", server_default="EQUITY")
+    # OPENING | CLOSING (Schwab positionEffect) — tells the lot engine whether a
+    # SELL opens a short (sell-to-open) or closes a long.
+    position_effect: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     settlement_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    symbol: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    symbol: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 6), nullable=True)
     price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)

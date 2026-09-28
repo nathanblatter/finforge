@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from services.options import is_option_symbol
 from database import get_db
 from dependencies import verify_api_key
 from models.db_models import DividendTransaction, Holding, MarketDataCache
@@ -79,6 +80,8 @@ def _latest_holdings_by_symbol(db: Session) -> dict[str, dict]:
             .all()
         )
         for h in rows:
+            if is_option_symbol(h.symbol):
+                continue  # contracts don't pay dividends
             entry = result[h.symbol]
             entry["quantity"] += Decimal(str(h.quantity))
             if h.cost_basis is not None:

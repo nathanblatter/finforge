@@ -13,6 +13,7 @@ import httpx
 from sqlalchemy import func
 
 from config import settings
+from etl.options import is_option_symbol
 from db import HoldingRow, MarketDataCacheRow, WatchlistItemRow, get_session
 from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
 
@@ -43,7 +44,8 @@ def _collect_symbols() -> set[str]:
                 .all()
             )
             for (sym,) in holding_symbols:
-                if sym:
+                # Quotes are per underlying; OCC option symbols aren't quotable here.
+                if sym and not is_option_symbol(sym):
                     symbols.add(sym.upper())
 
     return symbols

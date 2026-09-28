@@ -19,6 +19,7 @@ import httpx
 import numpy as np
 
 from config import settings
+from etl.options import is_option_symbol
 from db import AccountRow, HoldingRow, NatebotQueueRow, get_session
 from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
 from sqlalchemy import func
@@ -51,7 +52,7 @@ def _held_symbols(session) -> list[str]:
     rows = session.query(HoldingRow.symbol).filter(
         HoldingRow.account_id == acct.id, HoldingRow.snapshot_date == latest
     ).distinct().all()
-    return sorted({r[0] for r in rows if r[0] and r[0] not in MONEY_MARKET})
+    return sorted({r[0] for r in rows if r[0] and r[0] not in MONEY_MARKET and not is_option_symbol(r[0])})
 
 
 def _already_notified_today(session) -> bool:

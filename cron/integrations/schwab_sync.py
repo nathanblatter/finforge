@@ -37,6 +37,7 @@ from db import (
     get_session,
     get_or_create_account,
 )
+from etl.options import ASSET_EQUITY, ASSET_OPTION, is_option_symbol
 from etl.deidentify import deidentify_schwab_balance, deidentify_schwab_position
 from notify import alert_schwab_reauth
 from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
@@ -581,7 +582,7 @@ def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
                         params={
                             "startDate": from_date,
                             "endDate": to_date,
-                            "types": "TRADE,DIVIDEND_OR_INTEREST",
+                            "types": "TRADE,DIVIDEND_OR_INTEREST,RECEIVE_AND_DELIVER",
                         },
                     )
                 _handle_schwab_error(response, f"/transactions for {alias}")
@@ -609,7 +610,7 @@ def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
                 instrument = item.get("instrument") or {}
                 if (instrument.get("assetType") or "").upper() in _SECURITY_ASSET_TYPES:
                     sym = instrument.get("symbol")
-                    if sym:
+                    if sym and not is_option_symbol(sym):
                         candidates.add(sym)
         with get_session() as session:
             held = (
@@ -618,7 +619,7 @@ def sync_schwab_transactions(token_manager: SchwabTokenManager) -> None:
                 .distinct()
                 .all()
             )
-            candidates.update(s for (s,) in held)
+            candidates.update(s for (s,) in held if not is_option_symbol(s))
         name_map = _fetch_symbol_name_map(token_manager, candidates)
 
         inv_count = 0
@@ -693,7 +694,7 @@ def _map_activity_to_investment_txn(
         return None
 
     activity_type = (activity.get("type") or "").upper()
-    if activity_type not in ("TRADE", "DIVIDEND_OR_INTEREST"):
+    if activity_type not in ("TRADE", "DIVIDEND_OR_INTEREST", "RECEIVE_AND_DELIVER"):
         return None
 
     net_amount = float(activity.get("netAmount") or 0.0)
@@ -707,6 +708,8 @@ def _map_activity_to_investment_txn(
     quantity: float | None = None
     price: float | None = None
     fees = 0.0
+    security_asset_type = ASSET_EQUITY
+    position_effect: str | None = None
 
     for item in transfer_items:
         instrument = item.get("instrument") or {}
@@ -715,13 +718,35 @@ def _map_activity_to_investment_txn(
             fees += abs(float(item.get("cost") or item.get("amount") or 0.0))
         elif asset_type in _SECURITY_ASSET_TYPES:
             symbol = instrument.get("symbol") or symbol
+            security_asset_type = asset_type
             item_qty = item.get("amount")
             if item_qty is not None:
                 quantity = abs(float(item_qty))
             if item.get("price") is not None:
                 price = float(item["price"])
+            effect = (item.get("positionEffect") or "").upper()
+            if effect in ("OPENING", "CLOSING"):
+                position_effect = effect
 
-    if activity_type == "TRADE":
+    if security_asset_type != ASSET_OPTION and is_option_symbol(symbol):
+        security_asset_type = ASSET_OPTION
+
+    if activity_type == "RECEIVE_AND_DELIVER":
+        # Zero-cash option removals: expiration, assignment, exercise. Other
+        # RECEIVE_AND_DELIVER activity (share transfers/journals) isn't a trade.
+        if symbol is None or security_asset_type != ASSET_OPTION:
+            return None
+        desc_upper = description.upper()
+        if "ASSIGN" in desc_upper:
+            txn_type = "OPTION_ASSIGNMENT"
+        elif "EXERCISE" in desc_upper:
+            txn_type = "OPTION_EXERCISE"
+        else:
+            txn_type = "OPTION_EXPIRATION"
+        action = "CLOSE"
+        position_effect = "CLOSING"
+        price = 0.0
+    elif activity_type == "TRADE":
         if symbol is None:
             return None
         txn_type = "TRADE"
@@ -754,12 +779,14 @@ def _map_activity_to_investment_txn(
         "action": action,
         "trade_date": trade_date,
         "settlement_date": settlement_date,
-        "symbol": (symbol or None) and symbol[:20],
+        "symbol": (symbol or None) and symbol[:32],
         "description": description or None,
         "quantity": quantity,
         "price": price,
         "amount": net_amount,
         "fees": fees,
+        "asset_type": security_asset_type[:20],
+        "position_effect": position_effect,
     }
 
 

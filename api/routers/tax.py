@@ -55,6 +55,7 @@ from schemas.schemas import (
     TaxSummaryResponse,
     TLHOpportunity,
 )
+from services.options import display_symbol
 from services.tax_lots import (
     TERM_LONG,
     TERM_SHORT,
@@ -65,6 +66,9 @@ from services.tax_lots import (
 )
 
 logger = logging.getLogger("finforge.tax")
+
+# Activity types the lot engine consumes: trades plus zero-cash option removals.
+TRADE_LIKE_TXN_TYPES = ("TRADE", "OPTION_EXPIRATION", "OPTION_ASSIGNMENT", "OPTION_EXERCISE")
 
 router = APIRouter(prefix="/tax", tags=["tax"])
 
@@ -278,7 +282,7 @@ def _load_trade_events(db: Session, account_id) -> tuple[list[TradeEvent], str, 
         db.query(InvestmentTransaction)
         .filter(
             InvestmentTransaction.account_id == account_id,
-            InvestmentTransaction.txn_type == "TRADE",
+            InvestmentTransaction.txn_type.in_(TRADE_LIKE_TXN_TYPES),
             InvestmentTransaction.symbol.isnot(None),
         )
         .order_by(InvestmentTransaction.trade_date)
@@ -293,9 +297,11 @@ def _load_trade_events(db: Session, account_id) -> tuple[list[TradeEvent], str, 
                 quantity=Decimal(str(r.quantity)) if r.quantity is not None else None,
                 amount=abs(Decimal(str(r.amount))),
                 fees=Decimal(str(r.fees or 0)),
+                asset_type=(r.asset_type or "EQUITY").upper(),
+                position_effect=(r.position_effect or None) and r.position_effect.upper(),
             )
             for r in rows
-            if (r.action or "").upper() in ("BUY", "SELL")
+            if (r.action or "").upper() in ("BUY", "SELL", "CLOSE")
         ]
         coverage_start = min((e.trade_date for e in events), default=None)
         return events, "schwab_transactions", coverage_start
@@ -380,7 +386,9 @@ def _totals_model(lots: list[ClosedLot]) -> RealizedTotalsModel:
 
 def _lot_model(lot: ClosedLot) -> RealizedLot:
     return RealizedLot(
-        symbol=lot.symbol,
+        symbol=display_symbol(lot.symbol),
+        asset_type=lot.asset_type,
+        short=lot.short,
         acquired_date=lot.acquired_date,
         sold_date=lot.sold_date,
         quantity=lot.quantity,

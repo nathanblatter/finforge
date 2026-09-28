@@ -2,6 +2,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatCurrency, formatPct } from '../../utils/format'
 import { useQuotes } from '../../hooks/useMarketData'
 import type { BrokerageResponse } from '../../types'
+import OptionsPanel from './OptionsPanel'
 
 const COLORS = ['#38bdf8', '#818cf8', '#34d399', '#fb923c', '#f472b6', '#a78bfa', '#4ade80', '#fbbf24']
 
@@ -162,6 +163,8 @@ export default function BrokeragePanel({ data }: Props) {
           </div>
         </div>
       </div>
+
+      <OptionsPanel options={data.options ?? []} premiumYtd={Number(data.premium_collected_ytd ?? 0)} />
     </div>
   )
 }

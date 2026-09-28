@@ -18,6 +18,7 @@ import numpy as np
 from sqlalchemy import func
 
 from config import settings
+from etl.options import is_option_symbol
 from db import (
     AccountRow,
     HoldingRow,
@@ -131,6 +132,7 @@ def run_portfolio_analysis() -> None:
                 "cost_basis": h.cost_basis,
             }
             for h in holdings
+            if not is_option_symbol(h.symbol)  # per-symbol analytics are equity-only
         ]
 
         # Get cached market data (materialize to dicts to avoid detached session errors)

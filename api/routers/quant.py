@@ -9,6 +9,7 @@ from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from auth import require_auth
+from services.options import is_option_symbol
 from database import get_db
 from models.db_models import Account, Holding
 from services import quant
@@ -35,7 +36,11 @@ def _held_weights(db: Session) -> tuple[dict[str, float], float]:
     rows = db.query(Holding).filter(Holding.account_id == acct.id, Holding.snapshot_date == latest).all()
 
     total_value = sum(float(h.market_value) for h in rows)
-    risky = {h.symbol: float(h.market_value) for h in rows if h.symbol not in quant.MONEY_MARKET}
+    risky = {
+        h.symbol: float(h.market_value)
+        for h in rows
+        if h.symbol not in quant.MONEY_MARKET and not is_option_symbol(h.symbol)
+    }
     risky_total = sum(risky.values())
     if risky_total <= 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No risky holdings to analyze")
@@ -270,7 +275,7 @@ async def get_covered_calls(
 
     results = []
     for h in holdings:
-        if h.symbol in quant.MONEY_MARKET:
+        if h.symbol in quant.MONEY_MARKET or is_option_symbol(h.symbol):
             continue
         shares = float(h.quantity)
         chain = await quant.fetch_options_chain(h.symbol)
@@ -381,6 +386,8 @@ def get_sectors(
     per_holding = []
     total = 0.0
     for h in holdings:
+        if is_option_symbol(h.symbol):
+            continue
         mv = float(h.market_value)
         total += mv
         exposure = sector_data.classify_holding(h.symbol, mv)

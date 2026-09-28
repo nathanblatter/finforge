@@ -13,13 +13,15 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from dependencies import verify_api_key
-from models.db_models import Account, Balance, Holding, Transaction
+from models.db_models import Account, Balance, Holding, InvestmentTransaction, MarketDataCache, Transaction
 from schemas.schemas import (
     BrokerageResponse,
     HoldingDetail,
     IRAResponse,
     IRAYearContribution,
+    OptionPositionDetail,
 )
+from services.options import OPTION_MULTIPLIER, parse_occ_symbol
 
 router = APIRouter(tags=["investments"])
 
@@ -92,17 +94,21 @@ def get_brokerage(
         .all()
     )
 
-    # Cash = total portfolio value minus sum of all holding market values.
-    # This captures sweep funds and cash positions that aren't stored as holdings.
+    # Cash = total portfolio value minus sum of all holding market values
+    # (including short-option liabilities, which are negative). This captures
+    # sweep funds and cash positions that aren't stored as holdings.
     holdings_total = sum(
         (Decimal(str(h.market_value)) for h in holdings_orm),
         zero,
     )
     cash = max(total - holdings_total, zero)
-    invested = holdings_total
+
+    equities = [h for h in holdings_orm if parse_occ_symbol(h.symbol) is None]
+    option_rows = [h for h in holdings_orm if parse_occ_symbol(h.symbol) is not None]
+    invested = sum((Decimal(str(h.market_value)) for h in equities), zero)
 
     details: list[HoldingDetail] = []
-    for h in holdings_orm:
+    for h in equities:
         mv = Decimal(str(h.market_value))
         cb = Decimal(str(h.cost_basis)) if h.cost_basis is not None else None
         details.append(
@@ -121,9 +127,97 @@ def get_brokerage(
         cash_position=cash,
         invested_position=invested,
         holdings=details,
+        options=_option_positions(db, option_rows, equities, today),
+        premium_collected_ytd=_premium_collected_ytd(db, account.id, today.year),
         snapshot_date=latest_snapshot_date,
         as_of=as_of,
     )
+
+
+def _option_positions(
+    db: Session, option_rows: list[Holding], equities: list[Holding], today: date
+) -> list[OptionPositionDetail]:
+    """Describe open option contracts against the share positions that cover them."""
+    if not option_rows:
+        return []
+    shares_by_symbol: dict[str, Holding] = {h.symbol: h for h in equities}
+    underlyings = {parse_occ_symbol(h.symbol).underlying for h in option_rows}
+    prices = {
+        m.symbol: Decimal(str(m.last_price))
+        for m in db.query(MarketDataCache).filter(MarketDataCache.symbol.in_(underlyings)).all()
+        if m.last_price is not None
+    }
+
+    out: list[OptionPositionDetail] = []
+    for h in option_rows:
+        c = parse_occ_symbol(h.symbol)
+        contracts = Decimal(str(h.quantity))
+        mv = Decimal(str(h.market_value))
+        cb = Decimal(str(h.cost_basis)) if h.cost_basis is not None else None
+        is_short = contracts < 0
+        shares = shares_by_symbol.get(c.underlying)
+        share_qty = Decimal(str(shares.quantity)) if shares else Decimal("0")
+        covered = is_short and share_qty >= abs(contracts) * OPTION_MULTIPLIER
+
+        if is_short and c.put_call == "CALL":
+            strategy = "covered_call" if covered else "naked_call"
+        elif is_short:
+            strategy = "cash_secured_put"
+        else:
+            strategy = "long_call" if c.put_call == "CALL" else "long_put"
+
+        underlying_price = prices.get(c.underlying)
+        itm: Optional[bool] = None
+        if underlying_price is not None:
+            itm = underlying_price > c.strike if c.put_call == "CALL" else underlying_price < c.strike
+
+        if_assigned: Optional[Decimal] = None
+        if strategy == "covered_call" and shares and shares.cost_basis is not None and share_qty:
+            per_share_cost = Decimal(str(shares.cost_basis)) / share_qty
+            called_shares = abs(contracts) * OPTION_MULTIPLIER
+            share_gain = (c.strike - per_share_cost) * called_shares
+            if_assigned = (share_gain + (abs(cb) if cb is not None else Decimal("0"))).quantize(Decimal("0.01"))
+
+        out.append(OptionPositionDetail(
+            symbol=h.symbol,
+            display=c.display,
+            underlying=c.underlying,
+            put_call=c.put_call,
+            strike=c.strike,
+            expiration=c.expiration,
+            days_to_expiry=(c.expiration - today).days,
+            contracts=contracts,
+            strategy=strategy,
+            premium=abs(cb) if cb is not None else None,
+            market_value=mv,
+            unrealized_gain_loss=(mv - cb) if cb is not None else None,
+            underlying_price=underlying_price,
+            in_the_money=itm,
+            if_assigned_gain=if_assigned,
+        ))
+    out.sort(key=lambda o: o.expiration)
+    return out
+
+
+def _premium_collected_ytd(db: Session, account_id, year: int) -> Decimal:
+    """Gross premium from contracts sold to open this year (before buybacks)."""
+    rows = (
+        db.query(InvestmentTransaction)
+        .filter(
+            InvestmentTransaction.account_id == account_id,
+            InvestmentTransaction.txn_type == "TRADE",
+            InvestmentTransaction.action == "SELL",
+            InvestmentTransaction.asset_type == "OPTION",
+            extract("year", InvestmentTransaction.trade_date) == year,
+        )
+        .all()
+    )
+    total = Decimal("0")
+    for r in rows:
+        if (r.position_effect or "OPENING").upper() != "OPENING":
+            continue
+        total += Decimal(str(r.amount))
+    return total.quantize(Decimal("0.01"))
 
 
 # ---------------------------------------------------------------------------

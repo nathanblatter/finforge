@@ -23,6 +23,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 
 from config import settings
+from etl.options import is_option_symbol
 from db import AccountRow, DrawdownPredictionRow, get_session
 from integrations.schwab_auth import SchwabReauthRequired, SchwabTokenManager
 
@@ -355,7 +356,7 @@ def train_and_persist() -> None:
                 if latest_date:
                     held = [r[0] for r in session.query(HoldingRow.symbol).filter(
                         HoldingRow.account_id == acct.id, HoldingRow.snapshot_date == latest_date
-                    ).distinct().all()]
+                    ).distinct().all() if not is_option_symbol(r[0])]
 
                     # Alert threshold tightens in volatile/bear regimes
                     try:

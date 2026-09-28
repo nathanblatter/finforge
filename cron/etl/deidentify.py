@@ -11,6 +11,7 @@ CRITICAL POLICY (from PRD):
 """
 
 from __future__ import annotations
+from etl.options import ASSET_EQUITY, ASSET_OPTION, OPTION_MULTIPLIER, is_option_symbol
 
 import logging
 from datetime import date, datetime
@@ -190,23 +191,33 @@ def deidentify_schwab_position(
         logger.debug("Skipping position with no symbol: %r", instrument.get("assetType"))
         return None
 
-    long_quantity = raw.get("longQuantity", 0.0)
-    market_value = raw.get("marketValue", 0.0)
-    average_price = raw.get("averagePrice")
+    asset_type = str(instrument.get("assetType") or "").upper() or ASSET_EQUITY
+    if asset_type != ASSET_OPTION and is_option_symbol(symbol):
+        asset_type = ASSET_OPTION
 
+    # Schwab reports long and short legs separately; a written (sold-to-open)
+    # option shows up as shortQuantity with longQuantity 0. Store a signed
+    # quantity so a covered call is -1, not 0.
+    long_quantity = _to_float(raw.get("longQuantity")) or 0.0
+    short_quantity = _to_float(raw.get("shortQuantity")) or 0.0
+    quantity = long_quantity - short_quantity
+    market_value = _to_float(raw.get("marketValue")) or 0.0
+    average_price = _to_float(raw.get("averagePrice"))
+
+    # Signed net cost: positive = cash paid, negative = premium received.
+    # Options quote per share, so scale by the contract multiplier.
     cost_basis: float | None = None
     if average_price is not None:
-        try:
-            cost_basis = float(average_price) * float(long_quantity)
-        except (TypeError, ValueError):
-            cost_basis = None
+        multiplier = OPTION_MULTIPLIER if asset_type == ASSET_OPTION else 1
+        cost_basis = average_price * quantity * multiplier
 
     return {
         "account_id": account_uuid,
         "snapshot_date": snapshot_date,
-        "symbol": symbol[:20],
-        "quantity": float(long_quantity),
-        "market_value": float(market_value),
+        "symbol": symbol[:32],
+        "asset_type": asset_type[:20],
+        "quantity": quantity,
+        "market_value": market_value,
         "cost_basis": cost_basis,
     }
 
@@ -214,6 +225,15 @@ def deidentify_schwab_position(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 
 def _parse_date(value: Any) -> date:
     """Parse a Plaid date string (YYYY-MM-DD) to a Python date. Defaults to today."""

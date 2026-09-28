@@ -5,6 +5,14 @@ which carries quantity + price) and produces closed lots: acquired date, sold
 date, proceeds, basis, gain, and short/long term. Sells that outrun the synced
 buy history close with an unknown basis rather than a wrong one.
 
+Short positions (sell-to-open, e.g. a written covered call) open a *short*
+lot: the premium is not income until the contract is bought back, expires, or
+is assigned. A later BUY (buy-to-close) or a zero-cash CLOSE event (expiry /
+assignment) realizes premium - buyback cost as a short-term gain, which is how
+the IRS treats an option writer's gain regardless of holding period. On
+assignment the IRS actually folds the premium into the stock's sale proceeds;
+we report it as its own short-term lot instead (same total, simpler audit).
+
 Wash-sale detection follows the same convention as the portfolio_analysis cron:
 a 30-day replacement window around the loss sale (here: any other BUY of the
 same symbol within +/-30 days of the sale date). Disallowed loss is prorated by
@@ -35,6 +43,10 @@ class TradeEvent:
     quantity: Decimal | None  # None → amount-only event (orders fallback)
     amount: Decimal  # absolute cash amount of the trade (always >= 0)
     fees: Decimal = ZERO
+    asset_type: str = "EQUITY"  # EQUITY | OPTION
+    # OPENING | CLOSING when Schwab says so; None → infer (options: a SELL with
+    # no long lots opens a short; equities: a SELL always closes/outruns history).
+    position_effect: str | None = None
 
 
 @dataclass
@@ -51,6 +63,8 @@ class ClosedLot:
     term: str  # TERM_SHORT | TERM_LONG | TERM_UNKNOWN
     wash_sale: bool = False
     disallowed_loss: Decimal = ZERO  # positive magnitude
+    asset_type: str = "EQUITY"
+    short: bool = False  # closed a short position (premium/proceeds came first)
 
 
 @dataclass
@@ -58,6 +72,13 @@ class _OpenLot:
     acquired_date: date
     remaining_qty: Decimal
     basis_per_share: Decimal
+
+
+@dataclass
+class _ShortLot:
+    opened_date: date
+    remaining_qty: Decimal
+    credit_per_unit: Decimal  # net proceeds received per unit when opened
 
 
 @dataclass
@@ -114,66 +135,138 @@ def compute_closed_lots(events: list[TradeEvent]) -> list[ClosedLot]:
     for symbol, sym_events in by_symbol.items():
         sym_events.sort(key=lambda e: (e.trade_date, 0 if e.action == "BUY" else 1))
         open_lots: list[_OpenLot] = []
+        short_lots: list[_ShortLot] = []
 
         for ev in sym_events:
-            if ev.action == "BUY":
-                if ev.quantity is None or ev.quantity <= 0:
+            action = ev.action
+            qty_ok = ev.quantity is not None and ev.quantity > 0
+
+            if action == "CLOSE":
+                # Zero-cash removal (option expired / assigned / exercised).
+                if not qty_ok:
                     continue
-                basis_total = ev.amount + ev.fees
-                open_lots.append(_OpenLot(
-                    acquired_date=ev.trade_date,
-                    remaining_qty=ev.quantity,
-                    basis_per_share=basis_total / ev.quantity,
-                ))
+                _close_short(closed, symbol, short_lots, ev, ev.quantity, ZERO, ev.trade_date, ev.asset_type)
+                _close_long(closed, symbol, open_lots, ev, ev.quantity, ZERO, ev.trade_date, ev.asset_type)
                 continue
 
-            if ev.action != "SELL":
+            if action == "BUY":
+                if not qty_ok:
+                    continue
+                cost_per_unit = (ev.amount + ev.fees) / ev.quantity
+                to_close = ev.quantity
+                if short_lots and ev.position_effect != "OPENING":
+                    # Buy-to-close against open short lots first.
+                    to_close = _close_short(
+                        closed, symbol, short_lots, ev, to_close, cost_per_unit, ev.trade_date, ev.asset_type
+                    )
+                if to_close > 0:
+                    open_lots.append(_OpenLot(
+                        acquired_date=ev.trade_date,
+                        remaining_qty=to_close,
+                        basis_per_share=cost_per_unit,
+                    ))
+                continue
+
+            if action != "SELL":
                 continue
 
             net_proceeds = ev.amount - ev.fees
-            if ev.quantity is None or ev.quantity <= 0:
+            if not qty_ok:
                 closed.append(ClosedLot(
                     symbol=symbol, acquired_date=None, sold_date=ev.trade_date,
                     quantity=None, proceeds=net_proceeds, basis=None, gain=None,
-                    term=TERM_UNKNOWN,
+                    term=TERM_UNKNOWN, asset_type=ev.asset_type,
                 ))
                 continue
 
-            proceeds_per_share = net_proceeds / ev.quantity
-            to_close = ev.quantity
-
-            while to_close > 0 and open_lots:
-                lot = open_lots[0]
-                take = min(to_close, lot.remaining_qty)
-                basis = lot.basis_per_share * take
-                proceeds = proceeds_per_share * take
-                closed.append(ClosedLot(
-                    symbol=symbol,
-                    acquired_date=lot.acquired_date,
-                    sold_date=ev.trade_date,
-                    quantity=take,
-                    proceeds=proceeds,
-                    basis=basis,
-                    gain=proceeds - basis,
-                    term=TERM_LONG if _is_long_term(lot.acquired_date, ev.trade_date) else TERM_SHORT,
+            proceeds_per_unit = net_proceeds / ev.quantity
+            opens_short = ev.position_effect == "OPENING" or (
+                ev.position_effect is None and ev.asset_type == "OPTION" and not open_lots
+            )
+            if opens_short:
+                short_lots.append(_ShortLot(
+                    opened_date=ev.trade_date,
+                    remaining_qty=ev.quantity,
+                    credit_per_unit=proceeds_per_unit,
                 ))
-                lot.remaining_qty -= take
-                to_close -= take
-                if lot.remaining_qty <= 0:
-                    open_lots.pop(0)
+                continue
 
+            to_close = _close_long(
+                closed, symbol, open_lots, ev, ev.quantity, proceeds_per_unit, ev.trade_date, ev.asset_type
+            )
             if to_close > 0:
                 # Sold shares acquired before the synced history window.
                 closed.append(ClosedLot(
                     symbol=symbol, acquired_date=None, sold_date=ev.trade_date,
-                    quantity=to_close, proceeds=proceeds_per_share * to_close,
-                    basis=None, gain=None, term=TERM_UNKNOWN,
+                    quantity=to_close, proceeds=proceeds_per_unit * to_close,
+                    basis=None, gain=None, term=TERM_UNKNOWN, asset_type=ev.asset_type,
                 ))
 
         _flag_wash_sales(symbol, sym_events, [c for c in closed if c.symbol == symbol])
 
     closed.sort(key=lambda c: (c.sold_date, c.symbol), reverse=True)
     return closed
+
+
+def _close_long(
+    closed: list[ClosedLot], symbol: str, open_lots: list[_OpenLot], ev: TradeEvent,
+    quantity: Decimal, proceeds_per_unit: Decimal, closed_on: date, asset_type: str,
+) -> Decimal:
+    """FIFO-close long lots; returns the quantity that found no lot."""
+    to_close = quantity
+    while to_close > 0 and open_lots:
+        lot = open_lots[0]
+        take = min(to_close, lot.remaining_qty)
+        basis = lot.basis_per_share * take
+        proceeds = proceeds_per_unit * take
+        closed.append(ClosedLot(
+            symbol=symbol,
+            acquired_date=lot.acquired_date,
+            sold_date=closed_on,
+            quantity=take,
+            proceeds=proceeds,
+            basis=basis,
+            gain=proceeds - basis,
+            term=TERM_LONG if _is_long_term(lot.acquired_date, closed_on) else TERM_SHORT,
+            asset_type=asset_type,
+        ))
+        lot.remaining_qty -= take
+        to_close -= take
+        if lot.remaining_qty <= 0:
+            open_lots.pop(0)
+    return to_close
+
+
+def _close_short(
+    closed: list[ClosedLot], symbol: str, short_lots: list[_ShortLot], ev: TradeEvent,
+    quantity: Decimal, cost_per_unit: Decimal, closed_on: date, asset_type: str,
+) -> Decimal:
+    """FIFO-close short lots at cost_per_unit (0 = expired worthless).
+    Gain = credit received - cost to close; always short-term for a writer.
+    Returns the quantity that found no short lot."""
+    to_close = quantity
+    while to_close > 0 and short_lots:
+        lot = short_lots[0]
+        take = min(to_close, lot.remaining_qty)
+        proceeds = lot.credit_per_unit * take
+        basis = cost_per_unit * take
+        closed.append(ClosedLot(
+            symbol=symbol,
+            acquired_date=lot.opened_date,
+            sold_date=closed_on,
+            quantity=take,
+            proceeds=proceeds,
+            basis=basis,
+            gain=proceeds - basis,
+            term=TERM_SHORT,
+            asset_type=asset_type,
+            short=True,
+        ))
+        lot.remaining_qty -= take
+        to_close -= take
+        if lot.remaining_qty <= 0:
+            short_lots.pop(0)
+    return to_close
 
 
 def _flag_wash_sales(symbol: str, events: list[TradeEvent], lots: list[ClosedLot]) -> None:

@@ -320,12 +320,35 @@ class HoldingDetail(BaseModel):
     pct_of_portfolio: Decimal
 
 
+class OptionPositionDetail(BaseModel):
+    """An open option contract position (short = written, e.g. a covered call)."""
+    model_config = ConfigDict(from_attributes=False)
+    symbol: str  # raw OCC symbol
+    display: str  # "AAL 10/23/26 $15.50 Call"
+    underlying: str
+    put_call: str  # CALL | PUT
+    strike: Decimal
+    expiration: date
+    days_to_expiry: int
+    contracts: Decimal  # signed: negative = short
+    strategy: str  # covered_call | cash_secured_put | naked_call | long_call | long_put
+    premium: Optional[Decimal]  # net premium received (short) or paid (long), positive magnitude
+    market_value: Decimal  # signed liability/asset value
+    unrealized_gain_loss: Optional[Decimal]
+    underlying_price: Optional[Decimal]
+    in_the_money: Optional[bool]
+    # Covered calls: total gain if called away at the strike (share gain + premium)
+    if_assigned_gain: Optional[Decimal] = None
+
+
 class BrokerageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=False)
     total_portfolio_value: Decimal
     cash_position: Decimal
-    invested_position: Decimal
+    invested_position: Decimal  # equities only; option liabilities net into cash
     holdings: list[HoldingDetail]
+    options: list[OptionPositionDetail] = []
+    premium_collected_ytd: Decimal = Decimal("0.00")  # gross premium from sold-to-open contracts
     snapshot_date: Optional[date]
     as_of: Optional[date]
 
@@ -923,6 +946,8 @@ class RealizedLot(BaseModel):
     term: str  # short | long | unknown
     wash_sale: bool = False
     disallowed_loss: Decimal = Decimal("0.00")
+    asset_type: str = "EQUITY"  # EQUITY | OPTION
+    short: bool = False  # closed a short (e.g. written call bought back / expired)
 
 
 class RealizedTotalsModel(BaseModel):

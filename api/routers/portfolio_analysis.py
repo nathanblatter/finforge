@@ -12,6 +12,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from auth import require_auth
+from services.options import is_option_symbol
 from database import get_db
 from models.db_models import Account, DrawdownFavorite, DrawdownPrediction, Holding, PortfolioAnalysis, PortfolioTarget
 from schemas.schemas import (
@@ -344,6 +345,7 @@ def get_predictions(
     held_symbols = [
         r[0] for r in
         db.query(Holding.symbol).filter(Holding.account_id == acct.id, Holding.snapshot_date == latest_date).distinct().all()
+        if not is_option_symbol(r[0])
     ]
 
     # Get cached predictions for today

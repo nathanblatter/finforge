@@ -94,11 +94,31 @@ export interface HoldingDetail {
   pct_of_portfolio: number
 }
 
+export interface OptionPositionDetail {
+  symbol: string
+  display: string
+  underlying: string
+  put_call: 'CALL' | 'PUT'
+  strike: number
+  expiration: string
+  days_to_expiry: number
+  contracts: number // negative = short (written)
+  strategy: 'covered_call' | 'cash_secured_put' | 'naked_call' | 'long_call' | 'long_put'
+  premium: number | null
+  market_value: number
+  unrealized_gain_loss: number | null
+  underlying_price: number | null
+  in_the_money: boolean | null
+  if_assigned_gain: number | null
+}
+
 export interface BrokerageResponse {
   total_portfolio_value: number
   cash_position: number
   invested_position: number
   holdings: HoldingDetail[]
+  options: OptionPositionDetail[]
+  premium_collected_ytd: number
   snapshot_date: string | null
   as_of: string | null
 }
@@ -1039,6 +1059,8 @@ export interface RealizedLot {
   term: 'short' | 'long' | 'unknown'
   wash_sale: boolean
   disallowed_loss: number
+  asset_type?: 'EQUITY' | 'OPTION'
+  short?: boolean
 }
 
 export interface RealizedTotals {
