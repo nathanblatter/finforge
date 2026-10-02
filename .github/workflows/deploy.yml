@@ -58,8 +58,12 @@ jobs:
     steps:
       - name: Deploy
         run: |
-          cd /Users/nathanblatter/dev/finforge
-          git pull origin main
+          # Deploy from a dedicated checkout, never from the dev working tree in ~/dev
+          # (which may be on another branch or carry local changes). The checkout is
+          # disposable: hard-reset to origin/main. Runtime files (.env, secrets/) live there too.
+          cd /Users/nathanblatter/deploy/finforge
+          git fetch origin main
+          git reset --hard origin/main
 
           # Build all images. Layer cache stays valid for unchanged services;
           # a requirements/source edit invalidates exactly the layers it
