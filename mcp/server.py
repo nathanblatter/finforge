@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 from verifier import JWKSTokenVerifier
@@ -83,7 +84,14 @@ _client = httpx.AsyncClient(
 async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     params = {k: v for k, v in (params or {}).items() if v is not None}
     resp = await _client.get(path, params=params)
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        # Surface the API's own message (e.g. a 422 validation detail) so the model can
+        # correct its arguments instead of seeing an opaque "error executing tool".
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except ValueError:
+            detail = resp.text
+        raise ToolError(f"FinForge API {resp.status_code} for {path}: {detail}")
     ctype = resp.headers.get("content-type", "")
     return resp.json() if ctype.startswith("application/json") else resp.text
 
@@ -156,7 +164,9 @@ async def get_subscriptions(months: int | None = None) -> Any:
 
 
 async def spending_forecast(months: int | None = None) -> Any:
-    """Forward spending forecast including upcoming bills."""
+    """Next-month spend forecast per category (80% confidence band) plus this month's
+    run-rate projection. `months` is the HISTORY window used to fit the forecast
+    (4-24 complete months, default 12), not the forecast horizon."""
     return await _get("/spending/forecast", {"months": months})
 
 

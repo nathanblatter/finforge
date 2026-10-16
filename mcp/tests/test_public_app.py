@@ -85,3 +85,22 @@ def test_tailnet_instance_has_no_auth():
         r = c.post("/mcp", json=INIT, headers=HEADERS)
         assert r.status_code == 200
         assert c.get("/.well-known/oauth-protected-resource/mcp").status_code == 404
+
+
+def test_api_errors_surface_detail(monkeypatch):
+    """A 4xx from the FinForge API becomes a ToolError carrying the API's detail, so the
+    model can fix its arguments (seen live: months=1 on /spending/forecast -> 422)."""
+    import asyncio
+
+    import httpx
+    import server
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/spending/forecast"
+        return httpx.Response(422, json={"detail": [{"msg": "months must be >= 4"}]})
+
+    monkeypatch.setattr(server, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://x"))
+    with pytest.raises(ToolError) as exc:
+        asyncio.run(server.spending_forecast(months=1))
+    assert "422" in str(exc.value) and "months must be >= 4" in str(exc.value)
