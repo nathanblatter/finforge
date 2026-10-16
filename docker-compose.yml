@@ -91,6 +91,28 @@ services:
       - finforge-net
     restart: unless-stopped
 
+  # Public MCP for Claude on Nathan's phone: same image, same read-only tools,
+  # but every request needs a bearer token from auth-service (approved per
+  # connector with his passkey). No host port: only the UI nginx reaches it,
+  # and only for /mcp and the OAuth protected-resource metadata path.
+  finforge-mcp-public:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    container_name: finforge-mcp-public
+    environment:
+      FINFORGE_API_URL: http://finforge-api:8000/api/v1
+      FINFORGE_API_KEY: ${API_KEY}
+      AUTH_ISSUER: https://auth.nathanblatter.com
+      AUTH_AUDIENCE: svc_zlezt62ewdgohvyi   # FinForge's service id in auth-service
+      AUTH_RESOURCE: https://finforge.nathanblatter.com/mcp
+      AUTH_REQUIRED_SCOPES: read
+    depends_on:
+      - finforge-api
+    networks:
+      - finforge-net
+    restart: unless-stopped
+
   finforge-cron:
     build:
       context: ./cron

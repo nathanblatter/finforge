@@ -42,3 +42,4 @@ build/
 # ML models
 secrets/*.pkl
 *.tsbuildinfo
+.pytest_cache/
