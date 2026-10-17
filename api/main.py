@@ -40,7 +40,6 @@ from routers import (
     spending_router,
     summary_router,
     trips_router,
-    users_router,
     watchlists_router,
 )
 from routers.system import router as system_router
@@ -132,7 +131,6 @@ app.include_router(reimbursement_router, prefix=_PREFIX)
 app.include_router(reports_router,       prefix=_PREFIX)
 app.include_router(schwab_data_router, prefix=_PREFIX)
 app.include_router(watchlists_router,  prefix=_PREFIX)
-app.include_router(users_router,       prefix=_PREFIX)
 app.include_router(system_router,      prefix=_PREFIX)
 app.include_router(kpi_router,         prefix=_PREFIX)
 app.include_router(bug_report_router,  prefix=_PREFIX)

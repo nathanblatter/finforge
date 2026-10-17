@@ -16,7 +16,6 @@ from routers.schwab_auth import router as schwab_auth_router
 from routers.schwab_data import router as schwab_data_router
 from routers.portfolio_analysis import router as portfolio_analysis_router
 from routers.summary import router as summary_router
-from routers.users import router as users_router
 from routers.reimbursement import router as reimbursement_router
 from routers.reports import router as reports_router
 from routers.watchlists import router as watchlists_router
@@ -60,6 +59,5 @@ __all__ = [
     "summary_router",
     "reimbursement_router",
     "reports_router",
-    "users_router",
     "watchlists_router",
 ]

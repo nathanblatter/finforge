@@ -92,64 +92,6 @@ InsightTypeEnum = Enum(
 # Models
 # ---------------------------------------------------------------------------
 
-class User(Base):
-    """An authenticated FinForge user."""
-
-    __tablename__ = "users"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    username: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
-    # NULL means password login is disabled for this user (passkey-only).
-    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    totp_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-    def __repr__(self) -> str:
-        return f"<User username={self.username!r}>"
-
-
-class Passkey(Base):
-    """A WebAuthn credential (passkey) registered to a user."""
-
-    __tablename__ = "passkeys"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    # Raw credential ID bytes as returned by the authenticator (unique per credential).
-    credential_id: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, unique=True)
-    public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    transports: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String(32)), nullable=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False, default="Passkey")
-    aaguid: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    backed_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    user: Mapped["User"] = relationship("User", backref="passkeys")
-
-    def __repr__(self) -> str:
-        return f"<Passkey user_id={self.user_id} name={self.name!r}>"
-
-
 class Account(Base):
     """A financial account tracked by FinForge."""
 
@@ -529,22 +471,18 @@ class NatebotEvent(Base):
 
 
 class Watchlist(Base):
-    """A user-scoped watchlist of ticker symbols."""
+    """A watchlist of ticker symbols, scoped to a Squawk subject."""
 
     __tablename__ = "watchlists"
     __table_args__ = (
-        UniqueConstraint("user_id", "name", name="uq_watchlist_user_name"),
+        UniqueConstraint("subject", "name", name="uq_watchlist_subject_name"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
+    # Squawk subject from the session JWT ("owner", or "usr:<id>").
+    subject: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -562,7 +500,7 @@ class Watchlist(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Watchlist name={self.name!r} user_id={self.user_id!r}>"
+        return f"<Watchlist name={self.name!r} subject={self.subject!r}>"
 
 
 class WatchlistItem(Base):
@@ -741,17 +679,12 @@ class NatebotQueue(Base):
 
 
 class ChatMessage(Base):
-    """A single persisted chat message (user or assistant) scoped to a user."""
+    """A single persisted chat message (user or assistant) scoped to a Squawk subject."""
 
     __tablename__ = "chat_messages"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
+    subject: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -759,31 +692,26 @@ class ChatMessage(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<ChatMessage role={self.role!r} user_id={self.user_id!r}>"
+        return f"<ChatMessage role={self.role!r} subject={self.subject!r}>"
 
 
 class DrawdownFavorite(Base):
-    """A symbol a user has saved for quick drawdown-risk prediction."""
+    """A symbol saved for quick drawdown-risk prediction, scoped to a Squawk subject."""
 
     __tablename__ = "drawdown_favorites"
     __table_args__ = (
-        UniqueConstraint("user_id", "symbol", name="uq_drawdown_favorite_user_symbol"),
+        UniqueConstraint("subject", "symbol", name="uq_drawdown_favorite_subject_symbol"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
+    subject: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     def __repr__(self) -> str:
-        return f"<DrawdownFavorite symbol={self.symbol!r} user_id={self.user_id!r}>"
+        return f"<DrawdownFavorite symbol={self.symbol!r} subject={self.subject!r}>"
 
 
 class Notification(Base):

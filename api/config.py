@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     squawk_credential: str = ""      # service credential for client_credentials
     squawk_client_id: str = ""       # public (PKCE) OAuth client for the SPA
     squawk_resource: str = ""        # resource parameter sent to /oauth/authorize
-    squawk_owner_username: str = "nathan"  # FinForge user the Squawk owner (sub=owner) maps to
 
     # Claude AI
     anthropic_api_key: str = ""

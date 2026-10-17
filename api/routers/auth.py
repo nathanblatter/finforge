@@ -6,7 +6,8 @@ back to `/login?login_challenge=`; the page completes the owner-passkey, account
 passkey or emailed-code ceremony through the proxy endpoints below; Squawk
 redirects to `/login/callback` with a code; the page POSTs code + verifier to
 `/auth/squawk/exchange`; we exchange it, verify the Squawk user token and mint
-FinForge's own HS256 session JWT (what every `require_auth` site already checks).
+FinForge's own HS256 session JWT (what every `require_auth` site already checks)
+whose `sub` is the Squawk subject — FinForge has no users table of its own.
 
 Without `SQUAWK_ISSUER` (local dev) nothing here works and `/config` says so.
 There is intentionally no password fallback: Squawk recovery codes are the
@@ -18,14 +19,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-
 import squawk
 from auth import create_token
 from config import settings
-from database import get_db
 from dependencies import verify_api_key
-from models.db_models import User
 
 logger = logging.getLogger("finforge.auth")
 
@@ -47,7 +44,6 @@ def require_squawk() -> None:
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    mfa_required: bool = False
 
 
 class SquawkConfig(BaseModel):
@@ -193,9 +189,9 @@ async def email_finish(payload: EmailFinish):
 # ---------------------------------------------------------------------------
 
 @router.post("/exchange", dependencies=_squawk_deps, response_model=TokenResponse)
-async def exchange(payload: Exchange, db: Session = Depends(get_db)):
+async def exchange(payload: Exchange):
     """Trade the authorization code for a Squawk user token, verify it, and
-    mint FinForge's own session token for the mapped user."""
+    mint FinForge's own session token for that subject."""
     tokens = await _proxy(squawk.exchange_code(payload.code, payload.code_verifier))
     claims = await squawk.verifier().verify(tokens.get("access_token", ""))
     if claims is None:
@@ -205,22 +201,8 @@ async def exchange(payload: Exchange, db: Session = Depends(get_db)):
             detail={"error": "invalid_token", "message": "Squawk returned a token FinForge could not verify."},
         )
 
+    # The verifier already enforced: sub == "owner", or "usr:…" with a verified
+    # email. Either is a FinForge identity; its rows are keyed on the subject.
     sub = str(claims["sub"])
-    if sub != squawk.OWNER_SUBJECT:
-        # FinForge has no email column, so only the owner mapping exists today.
-        logger.warning("squawk subject %s has no FinForge account", sub)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No FinForge account is linked to that Squawk account",
-        )
-
-    user = db.query(User).filter(User.username == settings.squawk_owner_username).first()
-    if not user or not user.is_active:
-        logger.error("owner user %r missing or inactive", settings.squawk_owner_username)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No FinForge account is linked to that Squawk account",
-        )
-
-    logger.info("squawk sign-in sub=%s → user %s", sub, user.username)
-    return TokenResponse(access_token=create_token(str(user.id), user.username, mfa_verified=True))
+    logger.info("squawk sign-in sub=%s", sub)
+    return TokenResponse(access_token=create_token(sub))

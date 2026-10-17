@@ -12,7 +12,6 @@ from models.db_models import (
     PortfolioAnalysis,
     PortfolioTarget,
     Transaction,
-    User,
     Watchlist,
     WatchlistItem,
 )
@@ -29,7 +28,6 @@ __all__ = [
     "MarketDataCache",
     "NatebotEvent",
     "Transaction",
-    "User",
     "Watchlist",
     "WatchlistItem",
 ]

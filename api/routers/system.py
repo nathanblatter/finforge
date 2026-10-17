@@ -127,3 +127,52 @@ def get_cron_logs(
         ],
         "total": len(rows),
     }
+
+
+@router.get("/services", response_model=list[dict])
+# Moved here from the retired users router: connected-service status for Settings.
+def get_services(
+    _: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Get detailed status of connected services."""
+    from config import settings
+    import json
+    from pathlib import Path
+    from datetime import datetime, timezone
+
+    services = []
+
+    # Schwab
+    schwab_status = {"name": "Schwab Trader API", "key": "schwab", "connected": False, "details": {}}
+    token_path = Path(settings.schwab_token_file)
+    if token_path.exists():
+        try:
+            tokens = json.loads(token_path.read_text())
+            if tokens.get("access_token"):
+                schwab_status["connected"] = True
+                expires_at = tokens.get("expires_at", "")
+                account_hashes = tokens.get("account_hashes", {})
+                schwab_status["details"] = {
+                    "accounts": list(account_hashes.keys()),
+                    "token_expires": expires_at,
+                    "scope": tokens.get("scope", ""),
+                }
+        except Exception:
+            pass
+    services.append(schwab_status)
+
+    # Plaid
+    plaid_status = {"name": "Plaid", "key": "plaid", "connected": False, "details": {}}
+    if settings.plaid_client_id and settings.plaid_client_id.strip():
+        plaid_status["connected"] = True
+        plaid_status["details"] = {"environment": settings.plaid_env}
+    services.append(plaid_status)
+
+    # Claude AI
+    claude_status = {"name": "Claude AI", "key": "claude", "connected": False, "details": {}}
+    if settings.anthropic_api_key and settings.anthropic_api_key.strip():
+        claude_status["connected"] = True
+    services.append(claude_status)
+
+    return services

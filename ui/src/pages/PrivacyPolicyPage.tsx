@@ -38,7 +38,7 @@ export default function PrivacyPolicyPage() {
             <h3 className="text-sm font-semibold text-slate-200 mt-4 mb-2">2.1 Account Data</h3>
             <ul className="list-disc list-inside space-y-1 text-slate-400">
               <li>Username (chosen by you at registration)</li>
-              <li>No password. Sign-in is handled by Squawk (passkey or emailed code); FinForge stores only the username that identifies your account</li>
+              <li>No account record. Sign-in is handled by Squawk (passkey or emailed code); FinForge keeps only the opaque Squawk subject identifier on the data you create (watchlists, chat history)</li>
               <li>Account creation and last-update timestamps</li>
             </ul>
 
@@ -185,7 +185,7 @@ export default function PrivacyPolicyPage() {
                     <td className="py-2">User-created data, deletable on request</td>
                   </tr>
                   <tr className="border-b border-slate-800">
-                    <td className="py-2 pr-4">Account data (username)</td>
+                    <td className="py-2 pr-4">Account identifier (Squawk subject)</td>
                     <td className="py-2 pr-4 text-slate-200">Lifetime of account</td>
                     <td className="py-2">Required for service operation</td>
                   </tr>

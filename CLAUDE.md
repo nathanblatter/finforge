@@ -36,18 +36,23 @@ sessionStorage) → Squawk `/oauth/authorize` → browser lands back on `/login?
 for provisioned accounts) via the API proxies `/api/v1/auth/squawk/{owner,passkey,email}/{begin,finish}`
 → Squawk redirects to `/login/callback?code&state` → `POST /auth/squawk/exchange {code, code_verifier}`
 → the API exchanges + verifies the Squawk token (ES256 JWKS, aud = service id) and mints FinForge's
-own HS256 session JWT, so every `require_auth` site is unchanged. Only `sub=owner` is mapped (to
-the user named by `SQUAWK_OWNER_USERNAME`); `usr:…` subjects get 403 because FinForge has no
-email column. Approving the Claude connector while logged in also lands on
+own HS256 session JWT, so every `require_auth` site is unchanged. **FinForge has no users
+table**: identity is the Squawk subject (`sub` — `owner` for Nathan's passkey, `usr:<id>` for a
+provisioned account) carried in the session JWT, and the per-person tables (`watchlists`,
+`chat_messages`, `drawdown_favorites`) key on a `subject` text column. Accounts live in Squawk's
+console, not in FinForge. Approving the Claude connector while logged in also lands on
 `/login?login_challenge=` — use "Sign in as owner" there too (the LoginRoute does not redirect
 away when a challenge is present).
 
 Env (all in `.env`; `docker compose` passes it to the api via `env_file: .env`, so new vars need
 no compose change): `SQUAWK_ISSUER`, `SQUAWK_SERVICE_ID`, `SQUAWK_CREDENTIAL` (service
-credential), `SQUAWK_CLIENT_ID`, `SQUAWK_RESOURCE`, `SQUAWK_OWNER_USERNAME` (default `nathan`).
+credential), `SQUAWK_CLIENT_ID`, `SQUAWK_RESOURCE`.
 Empty `SQUAWK_ISSUER` (local dev) = disabled: `GET /auth/squawk/config` says `enabled: false`,
 the login page shows "Squawk is not configured", and there is no way to sign in. That is
 intentional — there is **no password fallback**; Squawk recovery codes are the break-glass.
+Migrations run automatically on deploy: the workflow's deploy job runs `alembic upgrade head`
+in the freshly built api image before rolling containers (`drop_users_identity_is_squawk_subject`
+dropped `users`/`passkeys` on 2026-10-16; backup at `~/backups/finforge/`).
 Code: `api/squawk.py` (client + verifier), `api/routers/auth.py`, `ui/src/api/squawk.ts`,
 `ui/src/pages/LoginPage.tsx`, `ui/src/pages/LoginCallbackPage.tsx`. Tests:
 `api/tests/test_squawk_auth.py` (Squawk mocked at the httpx layer).

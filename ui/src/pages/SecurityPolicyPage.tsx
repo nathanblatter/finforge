@@ -110,7 +110,7 @@ export default function SecurityPolicyPage() {
             <ul className="list-disc list-inside space-y-1 text-slate-400">
               <li><span className="text-slate-200 font-medium">Granting:</span> New user accounts are created by the administrator. API keys for service integrations are generated manually and stored in environment variables.</li>
               <li><span className="text-slate-200 font-medium">Modifying:</span> Permission changes (e.g., revoking a passkey, rotating API keys) are performed by the administrator and take effect immediately.</li>
-              <li><span className="text-slate-200 font-medium">Revoking:</span> User accounts can be deactivated (setting the active flag to false), which immediately invalidates all JWT tokens on the next request. API keys are revoked by removing them from the environment and restarting the affected service. Plaid and Schwab tokens can be individually revoked by deleting them from the encrypted token store.</li>
+              <li><span className="text-slate-200 font-medium">Revoking:</span> Access is revoked in Squawk (disable the account or revoke the passkey); FinForge holds no account records of its own, and session tokens expire within the configured JWT lifetime. API keys are revoked by removing them from the environment and restarting the affected service. Plaid and Schwab tokens can be individually revoked by deleting them from the encrypted token store.</li>
             </ul>
 
             <h3 className="text-sm font-semibold text-slate-200 mt-4 mb-2">3.4 Credential Lifecycle</h3>

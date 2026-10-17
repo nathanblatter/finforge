@@ -2,8 +2,6 @@
 
 import json
 import time
-import uuid
-from unittest.mock import MagicMock
 from urllib.parse import parse_qs
 
 import httpx
@@ -15,9 +13,8 @@ from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 
 import squawk
-from auth import ALGORITHM, require_auth
+from auth import ALGORITHM, require_auth, subject_of
 from config import settings
-from database import get_db
 from routers.auth import router as auth_router
 
 ISSUER = "https://squawk.example.test"
@@ -71,7 +68,6 @@ def squawk_env(monkeypatch, signing_key):
     monkeypatch.setattr(settings, "squawk_client_id", CLIENT_ID)
     monkeypatch.setattr(settings, "squawk_resource", RESOURCE)
     monkeypatch.setattr(settings, "public_url", PUBLIC_URL)
-    monkeypatch.setattr(settings, "squawk_owner_username", "nathan")
     squawk._reset_service_token()
     monkeypatch.setattr(
         squawk, "_verifier",
@@ -96,26 +92,10 @@ def squawk_env(monkeypatch, signing_key):
     return Env
 
 
-OWNER_ID = uuid.uuid4()
-
-
 @pytest.fixture
-def owner_user():
-    return MagicMock(id=OWNER_ID, username="nathan", is_active=True)
-
-
-@pytest.fixture
-def db(owner_user):
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = owner_user
-    return db
-
-
-@pytest.fixture
-def client(db):
+def client():
     app = FastAPI()
     app.include_router(auth_router)
-    app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app)
     c.headers.update(API_KEY_HEADERS)
     return c
@@ -271,7 +251,7 @@ def _exchange_handler(token, seen):
     return handler
 
 
-def test_exchange_maps_owner_to_finforge_user(client, squawk_env, mint, db):
+def test_exchange_mints_session_for_owner_subject(client, squawk_env, mint):
     seen = {}
     squawk_env.handler = _exchange_handler(mint(), seen)
     r = client.post("/auth/squawk/exchange", json={"code": "nbac_1", "code_verifier": VERIFIER})
@@ -281,13 +261,12 @@ def test_exchange_maps_owner_to_finforge_user(client, squawk_env, mint, db):
         "code_verifier": VERIFIER, "redirect_uri": f"{PUBLIC_URL}/login/callback",
     }
     body = r.json()
-    assert body["token_type"] == "bearer" and body["mfa_required"] is False
+    assert body["token_type"] == "bearer"
     claims = jwt.decode(body["access_token"], settings.jwt_secret, algorithms=[ALGORITHM])
-    assert claims["sub"] == str(OWNER_ID) and claims["username"] == "nathan" and claims["mfa_verified"] is True
+    # No users table: the Squawk subject IS the identity.
+    assert claims["sub"] == "owner" and "username" not in claims
     # The token is a full session for every existing require_auth site.
-    assert require_auth(HTTPAuthorizationCredentials(scheme="Bearer", credentials=body["access_token"]))["sub"] == str(OWNER_ID)
-    # Looked up by the configured owner username.
-    assert db.query.return_value.filter.called
+    assert subject_of(require_auth(HTTPAuthorizationCredentials(scheme="Bearer", credentials=body["access_token"]))) == "owner"
 
 
 @pytest.mark.parametrize("bad", [
@@ -309,18 +288,12 @@ def test_exchange_rejects_wrong_signing_key(client, squawk_env, mint, other_key)
     assert r.status_code == 401
 
 
-def test_exchange_verified_user_without_mapping_is_403(client, squawk_env, mint):
-    """A provisioned Squawk account is a valid token but FinForge has no row for it."""
+def test_exchange_accepts_verified_provisioned_account(client, squawk_env, mint):
+    """A provisioned Squawk account needs no FinForge row: its subject becomes the session identity."""
     squawk_env.handler = _exchange_handler(mint(sub="usr:abc", email="x@example.test", email_verified=True), {})
     r = client.post("/auth/squawk/exchange", json={"code": "nbac_1", "code_verifier": VERIFIER})
-    assert r.status_code == 403
-    assert r.json()["detail"] == "No FinForge account is linked to that Squawk account"
-
-
-def test_exchange_inactive_owner_is_403(client, squawk_env, mint, owner_user):
-    owner_user.is_active = False
-    squawk_env.handler = _exchange_handler(mint(), {})
-    assert client.post("/auth/squawk/exchange", json={"code": "c", "code_verifier": VERIFIER}).status_code == 403
+    assert r.status_code == 200
+    assert jwt.decode(r.json()["access_token"], settings.jwt_secret, algorithms=[ALGORITHM])["sub"] == "usr:abc"
 
 
 def test_exchange_invalid_grant_maps_to_400(client, squawk_env):
@@ -341,6 +314,7 @@ def test_legacy_login_routes_do_not_exist():
     from main import app
 
     paths = {r.path for r in app.routes}
-    for gone in ("/auth/login", "/auth/register", "/auth/mfa/verify", "/auth/mfa/setup", "/auth/passkeys/login/options"):
+    for gone in ("/auth/login", "/auth/register", "/auth/mfa/verify", "/auth/mfa/setup", "/auth/passkeys/login/options", "/users"):
         assert f"/api/v1{gone}" not in paths
     assert "/api/v1/auth/squawk/exchange" in paths
+    assert "/api/v1/system/services" in paths  # moved out of the retired users router

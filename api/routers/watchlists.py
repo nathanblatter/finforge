@@ -1,4 +1,4 @@
-"""Watchlist management endpoints — user-scoped symbol watchlists with cached quotes."""
+"""Watchlist management endpoints — per-subject symbol watchlists with cached quotes."""
 
 import logging
 import uuid
@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
-from auth import require_auth
+from auth import require_auth, subject_of
 from database import get_db
 from models.db_models import MarketDataCache, Watchlist, WatchlistItem
 from schemas.schemas import (
@@ -24,8 +24,6 @@ logger = logging.getLogger("finforge.watchlists")
 router = APIRouter(prefix="/watchlists", tags=["watchlists"])
 
 
-def _get_user_id(payload: dict) -> uuid.UUID:
-    return uuid.UUID(payload["sub"])
 
 
 def _enrich_with_quotes(watchlist: Watchlist, db: Session) -> WatchlistSchema:
@@ -57,11 +55,11 @@ def list_watchlists(
     payload: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    user_id = _get_user_id(payload)
+    subject = subject_of(payload)
     watchlists = (
         db.query(Watchlist)
         .options(joinedload(Watchlist.items))
-        .filter(Watchlist.user_id == user_id)
+        .filter(Watchlist.subject == subject)
         .order_by(Watchlist.created_at)
         .all()
     )
@@ -75,13 +73,13 @@ def create_watchlist(
     payload: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    user_id = _get_user_id(payload)
+    subject = subject_of(payload)
 
-    existing = db.query(Watchlist).filter_by(user_id=user_id, name=body.name).first()
+    existing = db.query(Watchlist).filter_by(subject=subject, name=body.name).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Watchlist with this name already exists")
 
-    wl = Watchlist(user_id=user_id, name=body.name)
+    wl = Watchlist(subject=subject, name=body.name)
     db.add(wl)
     db.flush()
 
@@ -100,11 +98,11 @@ def get_watchlist(
     payload: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    user_id = _get_user_id(payload)
+    subject = subject_of(payload)
     wl = (
         db.query(Watchlist)
         .options(joinedload(Watchlist.items))
-        .filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        .filter(Watchlist.id == watchlist_id, Watchlist.subject == subject)
         .first()
     )
     if not wl:
@@ -119,14 +117,14 @@ def rename_watchlist(
     payload: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    user_id = _get_user_id(payload)
-    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id).first()
+    subject = subject_of(payload)
+    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id, Watchlist.subject == subject).first()
     if not wl:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Watchlist not found")
 
     # Check name uniqueness
     clash = db.query(Watchlist).filter(
-        Watchlist.user_id == user_id, Watchlist.name == body.name, Watchlist.id != watchlist_id
+        Watchlist.subject == subject, Watchlist.name == body.name, Watchlist.id != watchlist_id
     ).first()
     if clash:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Watchlist with this name already exists")
@@ -143,8 +141,8 @@ def delete_watchlist(
     payload: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    user_id = _get_user_id(payload)
-    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id).first()
+    subject = subject_of(payload)
+    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id, Watchlist.subject == subject).first()
     if not wl:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Watchlist not found")
     db.delete(wl)
@@ -158,11 +156,11 @@ def add_symbol(
     payload: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    user_id = _get_user_id(payload)
+    subject = subject_of(payload)
     wl = (
         db.query(Watchlist)
         .options(joinedload(Watchlist.items))
-        .filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        .filter(Watchlist.id == watchlist_id, Watchlist.subject == subject)
         .first()
     )
     if not wl:
@@ -187,8 +185,8 @@ def remove_symbol(
     payload: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    user_id = _get_user_id(payload)
-    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id).first()
+    subject = subject_of(payload)
+    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id, Watchlist.subject == subject).first()
     if not wl:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Watchlist not found")
 

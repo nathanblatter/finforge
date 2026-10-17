@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from auth import require_auth
+from auth import require_auth, subject_of
 from services.options import is_option_symbol
 from database import get_db
 from models.db_models import Account, DrawdownFavorite, DrawdownPrediction, Holding, PortfolioAnalysis, PortfolioTarget
@@ -385,10 +385,10 @@ def list_favorites(
     payload: dict = Depends(require_auth),
 ):
     """Return the current user's saved drawdown symbols, newest first."""
-    user_id = uuid.UUID(payload["sub"])
+    subject = subject_of(payload)
     rows = (
         db.query(DrawdownFavorite)
-        .filter(DrawdownFavorite.user_id == user_id)
+        .filter(DrawdownFavorite.subject == subject)
         .order_by(desc(DrawdownFavorite.created_at))
         .all()
     )
@@ -404,19 +404,19 @@ def add_favorite(
     payload: dict = Depends(require_auth),
 ):
     """Save a symbol to the user's drawdown favorites (idempotent)."""
-    user_id = uuid.UUID(payload["sub"])
+    subject = subject_of(payload)
     symbol = body.symbol.upper().strip()
     if not symbol:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Symbol is required")
 
-    existing = db.query(DrawdownFavorite).filter_by(user_id=user_id, symbol=symbol).first()
+    existing = db.query(DrawdownFavorite).filter_by(subject=subject, symbol=symbol).first()
     if not existing:
-        db.add(DrawdownFavorite(user_id=user_id, symbol=symbol))
+        db.add(DrawdownFavorite(subject=subject, symbol=symbol))
         db.commit()
 
     rows = (
         db.query(DrawdownFavorite)
-        .filter(DrawdownFavorite.user_id == user_id)
+        .filter(DrawdownFavorite.subject == subject)
         .order_by(desc(DrawdownFavorite.created_at))
         .all()
     )
@@ -432,8 +432,8 @@ def remove_favorite(
     payload: dict = Depends(require_auth),
 ):
     """Remove a symbol from the user's drawdown favorites."""
-    user_id = uuid.UUID(payload["sub"])
-    row = db.query(DrawdownFavorite).filter_by(user_id=user_id, symbol=symbol.upper().strip()).first()
+    subject = subject_of(payload)
+    row = db.query(DrawdownFavorite).filter_by(subject=subject, symbol=symbol.upper().strip()).first()
     if row:
         db.delete(row)
         db.commit()

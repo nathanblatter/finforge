@@ -391,7 +391,7 @@ def post_imessage_chat(
 
     # Reuse the chat context builder
     from routers.chat import _build_chat_context
-    system_prompt = _build_chat_context(db, "Nathan", user_id=None)
+    system_prompt = _build_chat_context(db, "Nathan", subject=None)
 
     try:
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)

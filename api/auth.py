@@ -2,8 +2,9 @@
 
 Sign-in happens through Squawk (see routers/auth.py); once a Squawk user token
 is verified we mint one of these, and every protected endpoint checks it with
-`require_auth`. `mfa_verified` is kept in the payload for compatibility with
-tokens issued before Squawk — it is always True now.
+`require_auth`. FinForge has no users table: `sub` IS the identity — the Squawk
+subject string ("owner" for Nathan's passkey, "usr:<id>" for a provisioned
+account) — and per-user rows are keyed on it directly.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -19,15 +20,19 @@ bearer = HTTPBearer()
 ALGORITHM = "HS256"
 
 
-def create_token(user_id: str, username: str, mfa_verified: bool = True) -> str:
-    exp = datetime.now(timezone.utc) + timedelta(days=settings.jwt_expire_days)
+def create_token(subject: str) -> str:
+    now = datetime.now(timezone.utc)
     payload = {
-        "sub": user_id,
-        "username": username,
-        "mfa_verified": mfa_verified,
-        "exp": exp,
+        "sub": subject,
+        "iat": now,
+        "exp": now + timedelta(days=settings.jwt_expire_days),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=ALGORITHM)
+
+
+def subject_of(payload: dict) -> str:
+    """The Squawk subject a validated session token belongs to."""
+    return str(payload["sub"])
 
 
 def decode_token(token: str) -> dict:

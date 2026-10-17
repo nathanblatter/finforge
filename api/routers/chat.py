@@ -1,7 +1,6 @@
 """POST /api/v1/chat — Claude-powered financial chat (server-side only)."""
 
 import logging
-import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -9,7 +8,8 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
-from auth import require_auth
+import squawk
+from auth import require_auth, subject_of
 from config import settings
 from database import get_db
 from models.db_models import Account, Balance, ChatMessage, Holding, MarketDataCache, PortfolioAnalysis, Transaction, Goal, GoalSnapshot, Watchlist
@@ -30,7 +30,7 @@ MONEY_MARKET_TICKERS = frozenset({"SPAXX", "SWVXX", "VMFXX", "FDRXX", "SPRXX"})
 # Context builder
 # ---------------------------------------------------------------------------
 
-def _build_chat_context(db: Session, username: str, user_id: str | None = None) -> str:
+def _build_chat_context(db: Session, username: str, subject: str | None = None) -> str:
     """Build a de-identified financial context string for the system prompt."""
     today = date.today()
     cutoff = today - timedelta(days=30)
@@ -156,10 +156,10 @@ def _build_chat_context(db: Session, username: str, user_id: str | None = None) 
 
     # Watchlists with cached quotes
     watchlist_lines: list[str] = []
-    if user_id:
+    if subject:
         user_watchlists = (
             db.query(Watchlist)
-            .filter_by(user_id=user_id)
+            .filter_by(subject=subject)
             .all()
         )
         for wl in user_watchlists:
@@ -283,8 +283,8 @@ def chat(
     if not settings.anthropic_api_key:
         return ChatResponse(reply="Claude integration is not configured. Set ANTHROPIC_API_KEY.")
 
-    username = token_payload.get("username", "User")
-    user_id = token_payload.get("sub")
+    subject = subject_of(token_payload)
+    username = _display_name(subject)
 
     # Agentic path: the model pulls data on demand via read tools (see
     # services/agent) instead of a fixed context blob, so it can answer questions
@@ -306,17 +306,20 @@ def chat(
 
     # Persist the exchange so it survives a page refresh. Best-effort: a storage
     # failure (e.g. table not yet migrated) must not break the chat response.
-    _persist_exchange(db, user_id, payload.message, reply)
+    _persist_exchange(db, subject, payload.message, reply)
     return ChatResponse(reply=reply)
 
 
-def _persist_exchange(db: Session, user_id: str | None, user_msg: str, reply: str) -> None:
-    if not user_id:
-        return
+def _display_name(subject: str) -> str:
+    """Who the assistant is talking to. The Squawk owner is Nathan; a provisioned
+    account has no name in FinForge, so address it neutrally."""
+    return "Nathan" if subject == squawk.OWNER_SUBJECT else "the account holder"
+
+
+def _persist_exchange(db: Session, subject: str, user_msg: str, reply: str) -> None:
     try:
-        uid = uuid.UUID(user_id)
-        db.add(ChatMessage(user_id=uid, role="user", content=user_msg))
-        db.add(ChatMessage(user_id=uid, role="assistant", content=reply))
+        db.add(ChatMessage(subject=subject, role="user", content=user_msg))
+        db.add(ChatMessage(subject=subject, role="assistant", content=reply))
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -328,14 +331,12 @@ def get_chat_history(
     db: Session = Depends(get_db),
     token_payload: dict = Depends(require_auth),
 ) -> ChatHistoryResponse:
-    """Return the current user's chat history, oldest first."""
-    user_id = token_payload.get("sub")
-    if not user_id:
-        return ChatHistoryResponse(messages=[])
+    """Return the current subject's chat history, oldest first."""
+    subject = subject_of(token_payload)
     try:
         rows = (
             db.query(ChatMessage)
-            .filter(ChatMessage.user_id == uuid.UUID(user_id))
+            .filter(ChatMessage.subject == subject)
             .order_by(desc(ChatMessage.created_at))
             .limit(HISTORY_LIMIT)
             .all()
@@ -353,9 +354,6 @@ def clear_chat_history(
     db: Session = Depends(get_db),
     token_payload: dict = Depends(require_auth),
 ) -> None:
-    """Delete the current user's entire chat history."""
-    user_id = token_payload.get("sub")
-    if not user_id:
-        return
-    db.query(ChatMessage).filter(ChatMessage.user_id == uuid.UUID(user_id)).delete()
+    """Delete the current subject's entire chat history."""
+    db.query(ChatMessage).filter(ChatMessage.subject == subject_of(token_payload)).delete()
     db.commit()
