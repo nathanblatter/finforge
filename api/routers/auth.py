@@ -1,54 +1,48 @@
-"""User authentication endpoints — register, login, MFA setup & verify."""
+"""Sign-in through Squawk (Nathan's auth service) — the only way into the UI.
 
-import base64
-import io
+Flow: the login page sends the browser to Squawk's `/oauth/authorize` with PKCE
+(verifier kept in the browser); Squawk parks the request and sends the browser
+back to `/login?login_challenge=`; the page completes the owner-passkey, account
+passkey or emailed-code ceremony through the proxy endpoints below; Squawk
+redirects to `/login/callback` with a code; the page POSTs code + verifier to
+`/auth/squawk/exchange`; we exchange it, verify the Squawk user token and mint
+FinForge's own HS256 session JWT (what every `require_auth` site already checks).
+
+Without `SQUAWK_ISSUER` (local dev) nothing here works and `/config` says so.
+There is intentionally no password fallback: Squawk recovery codes are the
+break-glass.
+"""
+
 import logging
+from typing import Any
 
-import qrcode
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from auth import (
-    create_mfa_pending_token,
-    create_token,
-    generate_totp_secret,
-    get_totp_uri,
-    hash_password,
-    require_auth,
-    require_mfa_pending,
-    verify_password,
-    verify_totp,
-)
+import squawk
+from auth import create_token
+from config import settings
 from database import get_db
+from dependencies import verify_api_key
 from models.db_models import User
 
 logger = logging.getLogger("finforge.auth")
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/auth/squawk", tags=["auth"], dependencies=[Depends(verify_api_key)])
+
+
+def require_squawk() -> None:
+    if not squawk.enabled():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Squawk sign-in is not configured"},
+        )
 
 
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
-
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class MFAVerifyRequest(BaseModel):
-    code: str
-
-
-class MFASetupConfirmRequest(BaseModel):
-    code: str
-
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -56,151 +50,177 @@ class TokenResponse(BaseModel):
     mfa_required: bool = False
 
 
-class MFASetupResponse(BaseModel):
-    secret: str
-    qr_code: str  # base64 PNG
-    otpauth_uri: str
+class SquawkConfig(BaseModel):
+    enabled: bool
+    issuer: str
+    client_id: str
+    resource: str
+    redirect_uri: str
+    scope: str = "admin"
 
 
-class StatusResponse(BaseModel):
-    status: str
-    message: str
+class ChallengeBegin(BaseModel):
+    login_challenge: str = Field(min_length=1, max_length=256)
 
 
-# ---------------------------------------------------------------------------
-# Register
-# ---------------------------------------------------------------------------
-
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.username == payload.username).first()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
-
-    user = User(username=payload.username, password_hash=hash_password(payload.password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    # New users get a full token — they'll set up MFA after
-    token = create_token(str(user.id), user.username, mfa_verified=True)
-    return TokenResponse(access_token=token)
+class PasskeyFinish(BaseModel):
+    challenge_id: str = Field(min_length=1, max_length=256)
+    credential: dict[str, Any]
 
 
-# ---------------------------------------------------------------------------
-# Login
-# ---------------------------------------------------------------------------
+class EmailBegin(BaseModel):
+    login_challenge: str = Field(min_length=1, max_length=256)
+    email: str = Field(min_length=3, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-@router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == payload.username).first()
-    # verify_password returns False for passkey-only accounts (password_hash is NULL).
-    if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    if user.mfa_enabled and user.totp_secret:
-        # Return a short-lived pending token — client must call /auth/mfa/verify
-        pending_token = create_mfa_pending_token(str(user.id), user.username)
-        return TokenResponse(access_token=pending_token, mfa_required=True)
+class EmailFinish(BaseModel):
+    challenge_id: str = Field(min_length=1, max_length=256)
+    code: str = Field(pattern=r"^\d{6}$")
 
-    token = create_token(str(user.id), user.username, mfa_verified=True)
-    return TokenResponse(access_token=token)
+
+class Exchange(BaseModel):
+    code: str = Field(min_length=1, max_length=512)
+    code_verifier: str = Field(min_length=43, max_length=128)
+
+
+class Redirect(BaseModel):
+    redirect_to: str
 
 
 # ---------------------------------------------------------------------------
-# MFA Verify (during login)
+# Error mapping
 # ---------------------------------------------------------------------------
 
-@router.post("/mfa/verify", response_model=TokenResponse)
-def mfa_verify(
-    payload: MFAVerifyRequest,
-    token_payload: dict = Depends(require_mfa_pending),
-    db: Session = Depends(get_db),
-):
-    user = db.query(User).filter(User.id == token_payload["sub"]).first()
-    if not user or not user.totp_secret:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MFA not configured")
-
-    if not verify_totp(user.totp_secret, payload.code):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid MFA code")
-
-    token = create_token(str(user.id), user.username, mfa_verified=True)
-    return TokenResponse(access_token=token)
+_ERROR_MESSAGES = {
+    "code_rejected": "That code is wrong or expired. Request a new one.",
+    "passkey_rejected": "Passkey not recognized.",
+    "setup_required": "No owner passkey is registered in Squawk yet.",
+    "signup_closed": "No account exists for that address.",
+    "account_disabled": "That account is disabled.",
+    "email_unverified": "That account has not verified its email.",
+    "too_many_attempts": "Too many attempts. Try again later.",
+    "not_found": "This sign-in attempt expired. Start over.",
+    "email_disabled": "Email sign-in is unavailable right now.",
+    "invalid_grant": "The sign-in code was rejected. Start over.",
+}
 
 
-# ---------------------------------------------------------------------------
-# MFA Setup — Step 1: Generate secret + QR code
-# ---------------------------------------------------------------------------
+def _map_squawk_error(e: squawk.SquawkError) -> HTTPException:
+    status_code = e.status if e.status in (400, 401, 403, 404, 409, 429) else 502
+    headers = {"Retry-After": str(e.retry_after)} if e.status == 429 and e.retry_after else None
+    message = _ERROR_MESSAGES.get(e.code) or e.detail or "Sign-in failed."
+    if status_code == 502:
+        logger.warning("squawk upstream error: %s", e)
+        message = "Sign-in service unavailable. Try again."
+    return HTTPException(status_code=status_code, detail={"error": e.code, "message": message}, headers=headers)
 
-@router.post("/mfa/setup", response_model=MFASetupResponse)
-def mfa_setup(
-    token_payload: dict = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    user = db.query(User).filter(User.id == token_payload["sub"]).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    secret = generate_totp_secret()
-    uri = get_totp_uri(secret, user.username)
-
-    # Save secret (not yet enabled until confirmed)
-    user.totp_secret = secret
-    db.commit()
-
-    # Generate QR code as base64 PNG
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
-
-    return MFASetupResponse(secret=secret, qr_code=qr_b64, otpauth_uri=uri)
+async def _proxy(coro):
+    try:
+        return await coro
+    except squawk.SquawkError as e:
+        raise _map_squawk_error(e)
+    except Exception:
+        logger.exception("squawk request error")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": "server_error", "message": "Sign-in service unavailable. Try again."},
+        )
 
 
 # ---------------------------------------------------------------------------
-# MFA Setup — Step 2: Confirm with a code to enable
+# Config
 # ---------------------------------------------------------------------------
 
-@router.post("/mfa/confirm", response_model=StatusResponse)
-def mfa_confirm(
-    payload: MFASetupConfirmRequest,
-    token_payload: dict = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    user = db.query(User).filter(User.id == token_payload["sub"]).first()
-    if not user or not user.totp_secret:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Run MFA setup first")
-
-    if not verify_totp(user.totp_secret, payload.code):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid code — try again")
-
-    user.mfa_enabled = True
-    db.commit()
-    logger.info("MFA enabled for user %s", user.username)
-
-    return StatusResponse(status="ok", message="MFA enabled successfully")
+@router.get("/config", response_model=SquawkConfig)
+def config():
+    """What the login page should render and where to send the browser."""
+    return SquawkConfig(
+        enabled=squawk.enabled(),
+        issuer=squawk.issuer(),
+        client_id=settings.squawk_client_id,
+        resource=settings.squawk_resource,
+        redirect_uri=squawk.redirect_uri(),
+    )
 
 
 # ---------------------------------------------------------------------------
-# MFA Disable
+# Ceremony proxies (the login page at /login?login_challenge=)
 # ---------------------------------------------------------------------------
 
-@router.post("/mfa/disable", response_model=StatusResponse)
-def mfa_disable(
-    payload: MFAVerifyRequest,
-    token_payload: dict = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    user = db.query(User).filter(User.id == token_payload["sub"]).first()
-    if not user or not user.totp_secret:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MFA not configured")
+_squawk_deps = [Depends(require_squawk)]
 
-    if not verify_totp(user.totp_secret, payload.code):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid code")
 
-    user.mfa_enabled = False
-    user.totp_secret = None
-    db.commit()
-    logger.info("MFA disabled for user %s", user.username)
+@router.post("/owner/begin", dependencies=_squawk_deps)
+async def owner_begin(payload: ChallengeBegin) -> dict[str, Any]:
+    """Owner sign-in: assertion options for Nathan's Squawk passkeys."""
+    out = await _proxy(squawk.login_owner_begin(payload.login_challenge))
+    return {"challenge_id": out["challenge_id"], "options": out["options"]}
 
-    return StatusResponse(status="ok", message="MFA disabled")
+
+@router.post("/owner/finish", dependencies=_squawk_deps, response_model=Redirect)
+async def owner_finish(payload: PasskeyFinish):
+    out = await _proxy(squawk.login_owner_finish(payload.challenge_id, payload.credential))
+    return {"redirect_to": out["redirect_to"]}
+
+
+@router.post("/passkey/begin", dependencies=_squawk_deps)
+async def passkey_begin(payload: ChallengeBegin) -> dict[str, Any]:
+    out = await _proxy(squawk.login_passkey_begin(payload.login_challenge))
+    return {"challenge_id": out["challenge_id"], "options": out["options"]}
+
+
+@router.post("/passkey/finish", dependencies=_squawk_deps, response_model=Redirect)
+async def passkey_finish(payload: PasskeyFinish):
+    out = await _proxy(squawk.login_passkey_finish(payload.challenge_id, payload.credential))
+    return {"redirect_to": out["redirect_to"]}
+
+
+@router.post("/email/begin", dependencies=_squawk_deps)
+async def email_begin(payload: EmailBegin) -> dict[str, Any]:
+    out = await _proxy(squawk.login_email_begin(payload.login_challenge, payload.email))
+    return {"challenge_id": out["challenge_id"], "expires_in": out.get("expires_in", 600)}
+
+
+@router.post("/email/finish", dependencies=_squawk_deps, response_model=Redirect)
+async def email_finish(payload: EmailFinish):
+    out = await _proxy(squawk.login_email_finish(payload.challenge_id, payload.code))
+    return {"redirect_to": out["redirect_to"]}
+
+
+# ---------------------------------------------------------------------------
+# Code exchange → FinForge session token
+# ---------------------------------------------------------------------------
+
+@router.post("/exchange", dependencies=_squawk_deps, response_model=TokenResponse)
+async def exchange(payload: Exchange, db: Session = Depends(get_db)):
+    """Trade the authorization code for a Squawk user token, verify it, and
+    mint FinForge's own session token for the mapped user."""
+    tokens = await _proxy(squawk.exchange_code(payload.code, payload.code_verifier))
+    claims = await squawk.verifier().verify(tokens.get("access_token", ""))
+    if claims is None:
+        logger.warning("squawk access token failed verification")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "invalid_token", "message": "Squawk returned a token FinForge could not verify."},
+        )
+
+    sub = str(claims["sub"])
+    if sub != squawk.OWNER_SUBJECT:
+        # FinForge has no email column, so only the owner mapping exists today.
+        logger.warning("squawk subject %s has no FinForge account", sub)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No FinForge account is linked to that Squawk account",
+        )
+
+    user = db.query(User).filter(User.username == settings.squawk_owner_username).first()
+    if not user or not user.is_active:
+        logger.error("owner user %r missing or inactive", settings.squawk_owner_username)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No FinForge account is linked to that Squawk account",
+        )
+
+    logger.info("squawk sign-in sub=%s → user %s", sub, user.username)
+    return TokenResponse(access_token=create_token(str(user.id), user.username, mfa_verified=True))

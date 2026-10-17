@@ -8,12 +8,7 @@ python-dotenv==1.2.2
 alembic==1.13.3
 httpx==0.27.2
 python-multipart==0.0.31
-PyJWT==2.13.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.2.0
-webauthn==3.0.1
-pyotp==2.9.0
-qrcode[pil]==7.4.2
+PyJWT[crypto]==2.13.0
 anthropic==0.120.2
 plaid-python==39.0.0
 numpy==2.2.4

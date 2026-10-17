@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth import hash_password, require_auth, verify_password
+from auth import require_auth
 from database import get_db
 from models.db_models import User
 
@@ -22,22 +22,13 @@ router = APIRouter(prefix="/users", tags=["users"])
 class UserResponse(BaseModel):
     id: str
     username: str
-    mfa_enabled: bool
     is_active: bool
     created_at: str
     services: list[str]
-    has_password: bool = True
-    passkey_count: int = 0
 
 
 class CreateUserRequest(BaseModel):
     username: str
-    password: str
-
-
-class UpdatePasswordRequest(BaseModel):
-    current_password: str | None = None  # required for self-change, optional for admin
-    new_password: str
 
 
 class UpdateUserRequest(BaseModel):
@@ -91,12 +82,9 @@ def _user_to_response(user: User, services: list[str]) -> UserResponse:
     return UserResponse(
         id=str(user.id),
         username=user.username,
-        mfa_enabled=user.mfa_enabled,
         is_active=user.is_active,
         created_at=user.created_at.isoformat() if user.created_at else "",
         services=services,
-        has_password=bool(user.password_hash),
-        passkey_count=len(user.passkeys),
     )
 
 
@@ -124,7 +112,8 @@ def create_user(
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
 
-    user = User(username=payload.username, password_hash=hash_password(payload.password))
+    # Sign-in is through Squawk; FinForge users carry no credential of their own.
+    user = User(username=payload.username, password_hash=None)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -132,30 +121,6 @@ def create_user(
     logger.info("User created: %s", user.username)
     services = _get_connected_services(db)
     return _user_to_response(user, services)
-
-
-@router.put("/{user_id}/password", response_model=StatusResponse)
-def change_password(
-    user_id: str,
-    payload: UpdatePasswordRequest,
-    db: Session = Depends(get_db),
-    token_payload: dict = Depends(require_auth),
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    # If changing own password, verify current password
-    is_self = token_payload["sub"] == str(user.id)
-    if is_self and payload.current_password:
-        if not verify_password(payload.current_password, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password incorrect")
-
-    user.password_hash = hash_password(payload.new_password)
-    db.commit()
-
-    logger.info("Password changed for user: %s", user.username)
-    return StatusResponse(status="ok", message="Password updated")
 
 
 @router.put("/{user_id}", response_model=UserResponse)

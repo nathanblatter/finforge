@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { usePlaidLink } from 'react-plaid-link'
 import { useAuth } from '../hooks/useAuth'
 import Header from '../components/layout/Header'
 import CronLogsPanel from '../components/settings/CronLogsPanel'
-import PasskeysPanel from '../components/settings/PasskeysPanel'
 
 const API_KEY = import.meta.env.VITE_API_KEY as string
 const BASE = '/api/v1'
@@ -13,7 +11,6 @@ const TOKEN_KEY = 'finforge_token'
 interface UserInfo {
   id: string
   username: string
-  mfa_enabled: boolean
   is_active: boolean
   created_at: string
   services: string[]
@@ -43,7 +40,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export default function SettingsPage() {
   const { token } = useAuth()
-  const navigate = useNavigate()
   const [users, setUsers] = useState<UserInfo[]>([])
   const [services, setServices] = useState<ServiceInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -54,20 +50,12 @@ export default function SettingsPage() {
   // Add user form
   const [showAddUser, setShowAddUser] = useState(false)
   const [newUsername, setNewUsername] = useState('')
-  const [newPassword, setNewPassword] = useState('')
   const [addLoading, setAddLoading] = useState(false)
 
   // Plaid Link
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [plaidStatuses, setPlaidStatuses] = useState<{institution: string, accounts: string[], linked: boolean}[]>([])
 
-  // Change password modal
-  const [pwUserId, setPwUserId] = useState<string | null>(null)
-  const [pwUsername, setPwUsername] = useState('')
-  const [currentPw, setCurrentPw] = useState('')
-  const [newPw, setNewPw] = useState('')
-  const [confirmPw, setConfirmPw] = useState('')
-  const [pwLoading, setPwLoading] = useState(false)
 
   async function loadData() {
     setLoading(true)
@@ -179,10 +167,9 @@ export default function SettingsPage() {
     try {
       await apiFetch('/users', {
         method: 'POST',
-        body: JSON.stringify({ username: newUsername, password: newPassword }),
+        body: JSON.stringify({ username: newUsername }),
       })
       setNewUsername('')
-      setNewPassword('')
       setShowAddUser(false)
       setSuccess('User created')
       await loadData()
@@ -190,29 +177,6 @@ export default function SettingsPage() {
       setError(err.message)
     } finally {
       setAddLoading(false)
-    }
-  }
-
-  async function handleChangePassword(e: FormEvent) {
-    e.preventDefault()
-    clearMessages()
-    if (newPw !== confirmPw) { setError('Passwords do not match'); return }
-    if (newPw.length < 8) { setError('Password must be at least 8 characters'); return }
-    setPwLoading(true)
-    try {
-      await apiFetch(`/users/${pwUserId}/password`, {
-        method: 'PUT',
-        body: JSON.stringify({ current_password: currentPw || null, new_password: newPw }),
-      })
-      setPwUserId(null)
-      setCurrentPw('')
-      setNewPw('')
-      setConfirmPw('')
-      setSuccess('Password updated')
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setPwLoading(false)
     }
   }
 
@@ -267,8 +231,6 @@ export default function SettingsPage() {
           {success}
         </div>
       )}
-
-      <PasskeysPanel />
 
       {/* Connected Services */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
@@ -408,6 +370,9 @@ export default function SettingsPage() {
         {/* Add user form */}
         {showAddUser && (
           <form onSubmit={handleAddUser} className="mb-4 p-4 bg-slate-900 border border-slate-700 rounded-lg">
+            <p className="text-xs text-slate-500 mb-3">
+              Users sign in through Squawk; the username only labels the FinForge account.
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <div>
                 <label className="block text-xs text-slate-400 mb-1">Username</label>
@@ -419,21 +384,10 @@ export default function SettingsPage() {
                   required
                 />
               </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-sky-500"
-                  required
-                  minLength={8}
-                />
-              </div>
             </div>
             <button
               type="submit"
-              disabled={addLoading || !newUsername || !newPassword}
+              disabled={addLoading || !newUsername}
               className="px-4 py-2 text-sm bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg transition-colors"
             >
               {addLoading ? 'Creating...' : 'Create User'}
@@ -447,7 +401,6 @@ export default function SettingsPage() {
             <thead>
               <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700">
                 <th className="pb-2 pr-4">Username</th>
-                <th className="pb-2 pr-4">MFA</th>
                 <th className="pb-2 pr-4">Status</th>
                 <th className="pb-2 pr-4">Created</th>
                 <th className="pb-2 text-right">Actions</th>
@@ -457,17 +410,6 @@ export default function SettingsPage() {
               {users.map((user) => (
                 <tr key={user.id} className="hover:bg-slate-700/20 transition-colors">
                   <td className="py-3 pr-4 font-medium text-slate-100">{user.username}</td>
-                  <td className="py-3 pr-4">
-                    {user.mfa_enabled ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
-                        Enabled
-                      </span>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-600/30 text-slate-500">
-                        Disabled
-                      </span>
-                    )}
-                  </td>
                   <td className="py-3 pr-4">
                     <button
                       onClick={() => handleToggleActive(user)}
@@ -485,22 +427,6 @@ export default function SettingsPage() {
                   </td>
                   <td className="py-3 text-right space-x-2">
                     <button
-                      onClick={() => {
-                        setPwUserId(user.id)
-                        setPwUsername(user.username)
-                        clearMessages()
-                      }}
-                      className="text-xs text-sky-400 hover:text-sky-300 transition-colors"
-                    >
-                      Change Password
-                    </button>
-                    <button
-                      onClick={() => navigate('/settings/mfa')}
-                      className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
-                    >
-                      Reset MFA
-                    </button>
-                    <button
                       onClick={() => handleDeleteUser(user)}
                       className="text-xs text-rose-400 hover:text-rose-300 transition-colors"
                     >
@@ -517,67 +443,6 @@ export default function SettingsPage() {
       {/* Cron Logs */}
       <CronLogsPanel />
 
-      {/* Change password modal */}
-      {pwUserId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-sm mx-4">
-            <h3 className="text-lg font-semibold text-slate-100 mb-1">Change Password</h3>
-            <p className="text-sm text-slate-400 mb-4">For user: {pwUsername}</p>
-
-            <form onSubmit={handleChangePassword} className="space-y-3">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Current Password</label>
-                <input
-                  type="password"
-                  value={currentPw}
-                  onChange={(e) => setCurrentPw(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-sky-500"
-                  placeholder="Optional for other users"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">New Password</label>
-                <input
-                  type="password"
-                  value={newPw}
-                  onChange={(e) => setNewPw(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-sky-500"
-                  required
-                  minLength={8}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Confirm Password</label>
-                <input
-                  type="password"
-                  value={confirmPw}
-                  onChange={(e) => setConfirmPw(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-sky-500"
-                  required
-                  minLength={8}
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={pwLoading || !newPw || !confirmPw}
-                  className="flex-1 py-2.5 text-sm bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg transition-colors"
-                >
-                  {pwLoading ? 'Updating...' : 'Update Password'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setPwUserId(null); setCurrentPw(''); setNewPw(''); setConfirmPw('') }}
-                  className="px-4 py-2.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -38,8 +38,7 @@ export default function PrivacyPolicyPage() {
             <h3 className="text-sm font-semibold text-slate-200 mt-4 mb-2">2.1 Account Data</h3>
             <ul className="list-disc list-inside space-y-1 text-slate-400">
               <li>Username (chosen by you at registration)</li>
-              <li>Password (stored only as a bcrypt hash &mdash; we never store or can recover your plaintext password)</li>
-              <li>Multi-factor authentication secret (if you enable MFA)</li>
+              <li>No password. Sign-in is handled by Squawk (passkey or emailed code); FinForge stores only the username that identifies your account</li>
               <li>Account creation and last-update timestamps</li>
             </ul>
 
@@ -140,7 +139,7 @@ export default function PrivacyPolicyPage() {
               <li>All data is stored in a PostgreSQL database on self-hosted infrastructure (not a cloud provider).</li>
               <li>The database is accessible only on the internal Docker network — not exposed to the internet.</li>
               <li>Authentication tokens (Plaid, Schwab) are stored in encrypted files on the host, never in the database.</li>
-              <li>Passwords are hashed with bcrypt. Plaintext passwords are never stored or logged.</li>
+              <li>FinForge stores no passwords; authentication is delegated to Squawk and only a short-lived signed token reaches FinForge.</li>
               <li>All external connections use TLS encryption.</li>
               <li>Access to the application requires authentication via JWT tokens, with optional TOTP-based multi-factor authentication.</li>
             </ul>
@@ -186,7 +185,7 @@ export default function PrivacyPolicyPage() {
                     <td className="py-2">User-created data, deletable on request</td>
                   </tr>
                   <tr className="border-b border-slate-800">
-                    <td className="py-2 pr-4">Account data (username, password hash)</td>
+                    <td className="py-2 pr-4">Account data (username)</td>
                     <td className="py-2 pr-4 text-slate-200">Lifetime of account</td>
                     <td className="py-2">Required for service operation</td>
                   </tr>

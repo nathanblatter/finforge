@@ -32,13 +32,17 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_expire_days: int = 7
 
-    # WebAuthn / passkeys. rp_id is the registrable domain the passkey is bound
-    # to; origin must match the browser's origin exactly (scheme + host).
-    webauthn_rp_id: str = "finforge.nathanblatter.com"
-    webauthn_rp_name: str = "FinForge"
-    webauthn_origin: str = "https://finforge.nathanblatter.com"
-    # Public base URL used to build one-time passkey enrollment links.
+    # Public base URL of the UI; the Squawk OAuth redirect_uri is {public_url}/login/callback.
     public_url: str = "https://finforge.nathanblatter.com"
+
+    # Squawk — the only sign-in for the UI (https://squawk.nathanblatter.com).
+    # Empty squawk_issuer = disabled (local dev): the app then has no way to sign in.
+    squawk_issuer: str = ""
+    squawk_service_id: str = ""      # FinForge's service id in Squawk (token audience)
+    squawk_credential: str = ""      # service credential for client_credentials
+    squawk_client_id: str = ""       # public (PKCE) OAuth client for the SPA
+    squawk_resource: str = ""        # resource parameter sent to /oauth/authorize
+    squawk_owner_username: str = "nathan"  # FinForge user the Squawk owner (sub=owner) maps to
 
     # Claude AI
     anthropic_api_key: str = ""

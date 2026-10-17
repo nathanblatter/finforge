@@ -1,12 +1,12 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/layout/Layout'
 import AuthProvider from './components/AuthProvider'
 import { useAuth } from './hooks/useAuth'
 import LoginPage from './pages/LoginPage'
+import LoginCallbackPage from './pages/LoginCallbackPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import SecurityPolicyPage from './pages/SecurityPolicyPage'
-import PasskeyEnrollPage from './pages/PasskeyEnrollPage'
 
 const DashboardPage   = lazy(() => import('./pages/DashboardPage'))
 const SpendingPage    = lazy(() => import('./pages/SpendingPage'))
@@ -14,7 +14,6 @@ const InvestmentsPage = lazy(() => import('./pages/InvestmentsPage'))
 const GoalsPage       = lazy(() => import('./pages/GoalsPage'))
 const ChatPage        = lazy(() => import('./pages/ChatPage'))
 const AlertsPage      = lazy(() => import('./pages/AlertsPage'))
-const MFASetupPage    = lazy(() => import('./pages/MFASetupPage'))
 const SettingsPage    = lazy(() => import('./pages/SettingsPage'))
 const WatchlistsPage         = lazy(() => import('./pages/WatchlistsPage'))
 const PortfolioAnalysisPage  = lazy(() => import('./pages/PortfolioAnalysisPage'))
@@ -40,9 +39,14 @@ function PageLoader() {
 }
 
 function LoginRoute() {
-  const { token, mfaRequired } = useAuth()
+  const { token } = useAuth()
+  const { search } = useLocation()
 
-  if (token && !mfaRequired) {
+  // A Squawk-driven sign-in (e.g. approving the Claude connector while already
+  // logged in) lands here with ?login_challenge=; render the ceremony page
+  // even though a FinForge session exists.
+  const squawkChallenge = new URLSearchParams(search).has('login_challenge')
+  if (token && !squawkChallenge) {
     return <Navigate to="/" replace />
   }
 
@@ -50,9 +54,9 @@ function LoginRoute() {
 }
 
 function AuthenticatedRoutes() {
-  const { token, mfaRequired } = useAuth()
+  const { token } = useAuth()
 
-  if (!token || mfaRequired) {
+  if (!token) {
     return <Navigate to="/login" replace />
   }
 
@@ -122,9 +126,6 @@ function AuthenticatedRoutes() {
         <Route path="settings" element={
           <Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>
         } />
-        <Route path="settings/mfa" element={
-          <Suspense fallback={<PageLoader />}><MFASetupPage /></Suspense>
-        } />
       </Route>
     </Routes>
   )
@@ -138,7 +139,7 @@ export default function App() {
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/security" element={<SecurityPolicyPage />} />
         <Route path="/login" element={<LoginRoute />} />
-        <Route path="/passkeys/enroll" element={<PasskeyEnrollPage />} />
+        <Route path="/login/callback" element={<LoginCallbackPage />} />
 
         {/* Everything else requires authentication */}
         <Route path="/*" element={<AuthenticatedRoutes />} />

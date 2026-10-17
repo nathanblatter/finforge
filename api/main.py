@@ -43,7 +43,6 @@ from routers import (
     users_router,
     watchlists_router,
 )
-from routers.passkeys import router as passkeys_router
 from routers.system import router as system_router
 
 # ---------------------------------------------------------------------------
@@ -108,7 +107,6 @@ register_middleware(app)
 _PREFIX = "/api/v1"
 
 app.include_router(auth_router,        prefix=_PREFIX)
-app.include_router(passkeys_router,    prefix=_PREFIX)
 app.include_router(health_router,      prefix=_PREFIX)
 app.include_router(summary_router,     prefix=_PREFIX)
 app.include_router(balances_router,    prefix=_PREFIX)

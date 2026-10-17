@@ -84,7 +84,7 @@ export default function SecurityPolicyPage() {
                 <tbody className="text-xs">
                   <tr className="border-b border-slate-800">
                     <td className="py-2 pr-4 text-slate-200">Platform User</td>
-                    <td className="py-2 pr-4">JWT + optional MFA</td>
+                    <td className="py-2 pr-4">Squawk passkey sign-in (OAuth 2.1 + PKCE) → session JWT</td>
                     <td className="py-2">Read/write own financial data, goals, watchlists, and settings. Chat with Claude AI.</td>
                   </tr>
                   <tr className="border-b border-slate-800">
@@ -109,7 +109,7 @@ export default function SecurityPolicyPage() {
             <h3 className="text-sm font-semibold text-slate-200 mt-4 mb-2">3.3 Granting, Modifying &amp; Revoking Access</h3>
             <ul className="list-disc list-inside space-y-1 text-slate-400">
               <li><span className="text-slate-200 font-medium">Granting:</span> New user accounts are created by the administrator. API keys for service integrations are generated manually and stored in environment variables.</li>
-              <li><span className="text-slate-200 font-medium">Modifying:</span> Permission changes (e.g., enabling MFA, rotating API keys) are performed by the administrator and take effect immediately.</li>
+              <li><span className="text-slate-200 font-medium">Modifying:</span> Permission changes (e.g., revoking a passkey, rotating API keys) are performed by the administrator and take effect immediately.</li>
               <li><span className="text-slate-200 font-medium">Revoking:</span> User accounts can be deactivated (setting the active flag to false), which immediately invalidates all JWT tokens on the next request. API keys are revoked by removing them from the environment and restarting the affected service. Plaid and Schwab tokens can be individually revoked by deleting them from the encrypted token store.</li>
             </ul>
 
@@ -134,8 +134,8 @@ export default function SecurityPolicyPage() {
             <h3 className="text-sm font-semibold text-slate-200 mt-4 mb-2">4.1 User Authentication</h3>
             <ul className="list-disc list-inside space-y-1 text-slate-400">
               <li>Authentication is handled via JSON Web Tokens (JWT) with a 7-day expiry.</li>
-              <li>Passwords are hashed using <span className="text-slate-200">bcrypt</span> (adaptive cost function) before storage. Plaintext passwords are never stored, logged, or transmitted after initial receipt.</li>
-              <li>Optional TOTP-based multi-factor authentication (MFA) is supported via authenticator apps.</li>
+              <li>FinForge has no passwords. Sign-in is delegated to <span className="text-slate-200">Squawk</span>, Nathan&apos;s auth service, using a passkey (WebAuthn, phishing-resistant, device-bound biometric or PIN) or an emailed one-time code; FinForge only ever receives a short-lived signed token.</li>
+              <li>Passkeys combine possession and user verification, so every sign-in is inherently multi-factor.</li>
               <li>Failed authentication attempts return generic error messages to prevent username enumeration.</li>
             </ul>
 
