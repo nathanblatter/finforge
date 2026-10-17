@@ -25,7 +25,7 @@ def other_key():
 
 @pytest.fixture
 def mint(signing_key):
-    """Mint a token the way auth-service does (ES256, iss/sub/aud/scope/client_id/iat/exp)."""
+    """Mint a token the way Squawk (auth service) does (ES256, iss/sub/aud/scope/client_id/iat/exp)."""
 
     def _mint(key=None, **overrides):
         now = int(time.time())

@@ -7,7 +7,7 @@ streamable-HTTP MCP). Two deployments of this one program:
   consumers are natebot's brain sessions and Claude Code on the tailnet.
 * public instance (AUTH_ISSUER set): reachable at
   https://finforge.nathanblatter.com/mcp behind nginx + the Cloudflare tunnel;
-  every request must carry a bearer token minted by auth-service, which
+  every request must carry a bearer token minted by Squawk, which
   Nathan approves per connector with his passkey. Used by Claude on his phone.
 
 Read-only by design: write routes (dismiss anomaly, mark-legit, rules, syncs)
@@ -34,8 +34,8 @@ API_KEY = os.getenv("FINFORGE_API_KEY", "")
 class AuthConfig:
     """Public-instance settings; all three come from the environment."""
 
-    issuer: str  # https://auth.nathanblatter.com
-    audience: str  # our service id in auth-service (svc_…), the token's aud
+    issuer: str  # https://squawk.nathanblatter.com
+    audience: str  # our service id in Squawk (svc_…), the token's aud
     resource: str  # https://finforge.nathanblatter.com/mcp (RFC 8707 resource)
     required_scopes: tuple[str, ...] = ("read",)
 
@@ -53,7 +53,7 @@ class AuthConfig:
 
 
 def create_server(auth: AuthConfig | None = None, verifier: JWKSTokenVerifier | None = None) -> MCPServer:
-    """Build the server; with `auth` every MCP request needs a valid auth-service token."""
+    """Build the server; with `auth` every MCP request needs a valid Squawk token."""
     if auth is None:
         server = MCPServer("finforge")
     else:
@@ -64,7 +64,7 @@ def create_server(auth: AuthConfig | None = None, verifier: JWKSTokenVerifier | 
                 issuer_url=auth.issuer,
                 resource_server_url=auth.resource,
                 required_scopes=list(auth.required_scopes),
-                # The verifier checks `aud` itself (auth-service binds tokens to the
+                # The verifier checks `aud` itself (Squawk binds tokens to the
                 # service id, not the resource URL), so the SDK must not compare resources.
                 validate_token_resource=False,
             ),

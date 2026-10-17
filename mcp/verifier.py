@@ -1,8 +1,8 @@
 """Bearer-token verification for the public MCP.
 
-Tokens are ES256 JWTs minted by auth-service (https://auth.nathanblatter.com)
+Tokens are ES256 JWTs minted by Squawk (https://squawk.nathanblatter.com)
 after Nathan approves a connector in its admin console with his passkey. We
-verify signature (JWKS), issuer, audience (= our service id in auth-service)
+verify signature (JWKS), issuer, audience (= our service id in Squawk)
 and expiry; the MCP SDK's bearer middleware then enforces required scopes.
 """
 
@@ -72,7 +72,7 @@ class JWKSTokenVerifier:
             client_id=str(claims.get("client_id", "")),
             scopes=str(claims.get("scope", "")).split(),
             expires_at=int(claims["exp"]),
-            resource=None,  # audience was checked above; auth-service binds aud to the service id
+            resource=None,  # audience was checked above; Squawk binds aud to the service id
             subject=str(claims.get("sub", "")),
             claims=claims,
         )

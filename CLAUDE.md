@@ -17,8 +17,8 @@ Every feature must serve reliable aggregation or savings/investing motivation â€
 
 `finforge.nathanblatter.com/mcp` is served by the `finforge-mcp-public` container (same image
 as the tailnet `finforge-mcp`, same read-only tools). It is an OAuth protected resource: every
-request needs a bearer token from auth-service (https://auth.nathanblatter.com), which Nathan
+request needs a bearer token from Squawk, the auth service (https://squawk.nathanblatter.com), which Nathan
 approves per connector in its admin console with his passkey. The UI nginx forwards only `/mcp`
 and `/.well-known/oauth-protected-resource/mcp` to it; nothing else on the hostname changed.
 Config is plain env in docker-compose.yml (`AUTH_ISSUER`, `AUTH_AUDIENCE` = FinForge's service
-id in auth-service, `AUTH_RESOURCE`). Tests: `cd mcp && python -m pytest tests` (CI job test-mcp).
+id in Squawk, `AUTH_RESOURCE`). Tests: `cd mcp && python -m pytest tests` (CI job test-mcp).
