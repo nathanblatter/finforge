@@ -62,7 +62,7 @@ services:
       start_period: 10s
 
   finforge-tunnel:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.3
     container_name: finforge-tunnel
     command: tunnel --no-autoupdate run
     env_file:
