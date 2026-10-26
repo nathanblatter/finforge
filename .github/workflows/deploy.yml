@@ -102,6 +102,11 @@ jobs:
             exit 0
           fi
 
+          # Roll the tunnel only when its image/config changed (a cloudflared
+          # security bump, say). --no-deps keeps compose off the app replicas,
+          # and the tunnel publishes no host port, so this is safe here.
+          docker compose up -d --no-deps finforge-tunnel
+
           echo "Scaling finforge-api to 2 replicas..."
           docker compose up -d --scale finforge-api=2 --no-recreate
 
